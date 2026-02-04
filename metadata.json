@@ -1,0 +1,5 @@
+{
+  "name": "StrikeRadar_03",
+  "description": "A live, real-time dashboard monitoring public signals and geopolitical indicators to estimate the probability of a US military strike on Iran. Features a tactical alert level, risk trends, and a sarcasm-infused intelligence feed.",
+  "requestFramePermissions": []
+}

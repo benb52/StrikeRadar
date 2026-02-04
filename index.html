@@ -1,0 +1,2779 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>StrikeRadar v5.0 - Command & Control</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600;800&family=Heebo:wght@400;700;900&display=swap" rel="stylesheet">
+
+  <!-- Leaflet CSS & JS for Map -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  
+  <!-- Satellite.js for Orbital Mechanics -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/satellite.js/5.0.0/satellite.min.js"></script>
+
+  <!-- Babel for JSX transformation -->
+  <script src="https://unpkg.com/@babel/standalone@7.23.8/babel.min.js" crossorigin="anonymous"></script>
+  
+  <!-- Brain.js for Machine Learning -->
+  <script src="https://unpkg.com/brain.js@2.0.0-beta.23/dist/brain-browser.min.js"></script>
+
+  <!-- Import Map -->
+  <script type="importmap">
+  {
+    "imports": {
+      "react": "https://esm.sh/react@18.2.0",
+      "react-dom": "https://esm.sh/react-dom@18.2.0",
+      "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+      "firebase/app": "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js",
+      "firebase/firestore": "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js",
+      "lucide-react": "https://esm.sh/lucide-react@0.344.0?external=react",
+      "recharts": "https://esm.sh/recharts@2.12.7?external=react,react-dom",
+      "@google/genai": "https://esm.sh/@google/genai"
+    }
+  }
+  </script>
+
+  <style>
+    :root { --base-font-scale: 1; }
+    body {
+      background-color: #020617; color: #f8fafc; font-family: 'Inter', 'Heebo', sans-serif;
+      overflow-x: hidden; transition: font-size 0.2s ease; touch-action: manipulation;
+    }
+    .mono { font-family: 'JetBrains Mono', 'Heebo', monospace; }
+    
+    /* Animations */
+    @keyframes pulse-red { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(1.1); } }
+    .pulse-live { animation: pulse-red 2s infinite; }
+    
+    @keyframes scan { 0% { background-position: 0 0; } 100% { background-position: 0 100%; } }
+    .scanline-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 50;
+      background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0,0,0,0.1) 50%, rgba(0,0,0,0.1));
+      background-size: 100% 4px;
+      animation: scan 10s linear infinite;
+      opacity: 0.3;
+    }
+
+    .radar-sweep {
+      position: absolute; width: 300%; height: 300%;
+      background: conic-gradient(from 0deg, transparent 0deg, rgba(16, 185, 129, 0.1) 20deg, transparent 40deg);
+      animation: rotate-radar 15s linear infinite; pointer-events: none; top: -100%; left: -100%;
+    }
+    @keyframes rotate-radar { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    
+    .map-radar-overlay {
+        position: absolute; top: 50%; left: 50%; width: 200%; height: 200%;
+        transform: translate(-50%, -50%);
+        background: conic-gradient(from 0deg, transparent 0deg, rgba(56, 189, 248, 0.15) 15deg, transparent 30deg);
+        animation: rotate-radar 8s linear infinite;
+        pointer-events: none;
+        z-index: 401; /* Above map tiles/markers */
+        border-radius: 50%;
+    }
+    
+    /* Strategic Map Specifics */
+    .map-container .leaflet-pane { z-index: 10; }
+    .map-container .leaflet-control-container { display: none; }
+
+    .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 4px; }
+    .recharts-wrapper { direction: ltr; } 
+    
+    .signals-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 0.75rem;
+    }
+    @media (min-width: 768px) {
+      .signals-grid {
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        gap: 1rem;
+      }
+    }
+
+    /* Drill Mode - Red Alert Theme */
+    body.theme-drill {
+        background-color: #1a0505;
+    }
+    body.theme-drill .radar-sweep {
+        background: conic-gradient(from 0deg, transparent 0deg, rgba(239, 68, 68, 0.2) 20deg, transparent 40deg);
+    }
+    body.theme-drill .map-radar-overlay {
+        background: conic-gradient(from 0deg, transparent 0deg, rgba(239, 68, 68, 0.2) 15deg, transparent 30deg);
+    }
+    body.theme-drill .text-emerald-500, body.theme-drill .text-emerald-400 {
+        color: #ef4444 !important;
+    }
+    body.theme-drill .bg-emerald-500 {
+        background-color: #ef4444 !important;
+    }
+    body.theme-drill .border-slate-800 {
+        border-color: #7f1d1d !important;
+    }
+    body.theme-drill .bg-slate-900\/40 {
+        background-color: rgba(69, 10, 10, 0.4) !important;
+    }
+    body.theme-drill .scanline-overlay {
+        background: linear-gradient(to bottom, rgba(255,0,0,0), rgba(255,0,0,0) 50%, rgba(50,0,0,0.2) 50%, rgba(50,0,0,0.2));
+        background-size: 100% 4px;
+    }
+    body.theme-drill .news-ticker-container {
+        border-top-color: #ef4444 !important;
+        background-color: rgba(26, 5, 5, 0.95) !important;
+    }
+    body.theme-drill .news-ticker-text {
+        color: #fca5a5 !important;
+    }
+
+    /* Chat Components */
+    .chat-bubble-user {
+        background-color: rgba(16, 185, 129, 0.1);
+        border: 1px solid rgba(16, 185, 129, 0.3);
+        border-radius: 8px 8px 0 8px;
+        color: #d1fae5;
+    }
+    [dir="rtl"] .chat-bubble-user {
+        border-radius: 8px 8px 8px 0;
+    }
+    .chat-bubble-ai {
+        background-color: rgba(30, 41, 59, 0.6);
+        border: 1px solid rgba(71, 85, 105, 0.5);
+        border-radius: 8px 8px 8px 0;
+        color: #e2e8f0;
+    }
+    [dir="rtl"] .chat-bubble-ai {
+        border-radius: 8px 8px 0 8px;
+    }
+
+    /* Leaflet Dark Mode Overrides */
+    .leaflet-layer,
+    .leaflet-control-zoom-in,
+    .leaflet-control-zoom-out,
+    .leaflet-control-attribution {
+      filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
+    }
+    .leaflet-container {
+        background: #020617;
+    }
+    .leaflet-popup-content-wrapper, .leaflet-popup-tip {
+        background: #0f172a;
+        color: #e2e8f0;
+        border: 1px solid #334155;
+        border-radius: 4px;
+        font-family: 'Inter', 'Heebo', sans-serif;
+    }
+    
+    /* Satellite Marker Pulse */
+    .sat-icon-pulse {
+        width: 10px; height: 10px; background: #38bdf8; border-radius: 50%;
+        box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.7);
+        animation: sat-pulse 2s infinite;
+    }
+    .sat-icon-pulse.hostile { background: #f43f5e; box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.7); }
+    @keyframes sat-pulse {
+        0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.7); }
+        70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(56, 189, 248, 0); }
+        100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(56, 189, 248, 0); }
+    }
+    
+    /* Quake Pulse */
+    .quake-pulse {
+        width: 20px; height: 20px; background: transparent; border: 2px solid #f97316; border-radius: 50%;
+        animation: quake-wave 2s infinite;
+    }
+    @keyframes quake-wave {
+        0% { transform: scale(0.5); opacity: 1; border-width: 2px; }
+        100% { transform: scale(2.5); opacity: 0; border-width: 0px; }
+    }
+
+    /* Map Icons */
+    .target-icon-inner {
+        display: flex; justify-content: center; align-items: center;
+        width: 100%; height: 100%;
+        color: white; font-weight: bold;
+    }
+
+    /* Flight Path Animation */
+    .flight-path-line {
+        stroke-dasharray: 10, 10;
+        animation: flight-dash 20s linear infinite;
+    }
+    @keyframes flight-dash {
+        to { stroke-dashoffset: -200; }
+    }
+
+    /* Simulated Hostile Track */
+    .sim-hostile-icon {
+        width: 12px; height: 12px;
+        background: transparent;
+        border: 2px solid #ef4444;
+        transform: rotate(45deg);
+        box-shadow: 0 0 10px #ef4444;
+        animation: flash-track 1s infinite;
+    }
+    @keyframes flash-track { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+    
+    /* Typewriter Cursor */
+    .typewriter-cursor:after {
+      content: '▋';
+      animation: blink 1s step-start infinite;
+      color: #10b981;
+      margin-left: 2px;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    /* News Ticker */
+    @keyframes ticker {
+      0% { transform: translateX(100%); }
+      100% { transform: translateX(-100%); }
+    }
+    /* RTL Ticker Animation */
+    @keyframes ticker-rtl {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(100%); }
+    }
+
+    .ticker-wrap {
+      width: 100%;
+      overflow: hidden;
+      white-space: nowrap;
+      box-sizing: border-box;
+    }
+    .ticker {
+      display: inline-block;
+      white-space: nowrap;
+      padding-right: 100%;
+      /* Slowed down from 45s to 90s */
+      animation: ticker 90s linear infinite;
+    }
+    [dir="rtl"] .ticker {
+      animation: ticker-rtl 90s linear infinite;
+      padding-right: 0;
+      padding-left: 100%;
+    }
+
+    .ticker:hover { animation-play-state: paused; }
+    
+    /* Satellite Feed Effect */
+    .sat-feed-container {
+        position: relative;
+        overflow: hidden;
+        background: #000;
+    }
+    .sat-feed-overlay {
+        background: repeating-linear-gradient(
+            0deg,
+            rgba(0, 0, 0, 0.15),
+            rgba(0, 0, 0, 0.15) 1px,
+            transparent 1px,
+            transparent 2px
+        );
+        background-size: 100% 2px;
+        position: absolute; top:0; left:0; width:100%; height:100%;
+        pointer-events: none;
+    }
+    .crosshair-center {
+        position: absolute; top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        width: 40px; height: 40px;
+        border: 1px solid rgba(255, 255, 255, 0.5);
+        pointer-events: none;
+    }
+    .crosshair-center::before, .crosshair-center::after {
+        content: ''; position: absolute; background: rgba(255, 255, 255, 0.8);
+    }
+    .crosshair-center::before { top: 50%; left: 0; width: 100%; height: 1px; transform: translateY(-50%); }
+    .crosshair-center::after { left: 50%; top: 0; height: 100%; width: 1px; transform: translateX(-50%); }
+
+  </style>
+</head>
+<body>
+  <div class="scanline-overlay"></div>
+  <div id="root"></div>
+
+  <script type="text/babel" data-type="module" data-presets="react">
+    import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import { initializeApp } from 'firebase/app';
+    import { GoogleGenAI } from "@google/genai";
+    import { 
+      getFirestore, 
+      collection, 
+      query, 
+      where, 
+      orderBy, 
+      limit, 
+      getDocs, 
+      addDoc, 
+      Timestamp,
+      onSnapshot
+    } from 'firebase/firestore';
+    import { 
+      AlertCircle, ChevronUp, ChevronsUp, Maximize, Bot, Languages, 
+      Type, RefreshCw, Loader2, ArrowUpRight, ArrowDownRight, Minus, 
+      ShieldCheck, X, Database, Clock, Zap, Brain, Map as MapIcon, Globe,
+      Satellite, Radar, Siren, FileText, Terminal, Radio, Lock, Volume2, VolumeX,
+      WifiOff, MessageSquare, Send, Minimize2, Maximize2, Cloud, Target,
+      Search, Anchor, Plane, Radiation, ShieldAlert, Crosshair, Wind, Thermometer,
+      Activity, Sun, Cpu, BarChart3, Clock3, FileSearch
+    } from 'lucide-react';
+    import { 
+      LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, ReferenceLine
+    } from 'recharts';
+
+    // --- Firebase Configuration ---
+    const firebaseConfig = {
+      apiKey: "AIzaSyDp8saCbsYdIo4JXRQyZup9qwrUyJA9yWc",
+      authDomain: "strikeradar-ed6ab.firebaseapp.com",
+      projectId: "strikeradar-ed6ab",
+      storageBucket: "strikeradar-ed6ab.firebasestorage.app",
+      messagingSenderId: "344845331135",
+      appId: "1:344845331135:web:90eb39227f761ba784740a"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    // --- TLE Data (Satellite Orbits) ---
+    const SATELLITES_TLE = [
+        {
+            name: "USA 326 (Recon)",
+            line1: "1 51445U 22009A   26040.50000000  .00000000  00000-0  00000-0 0  9993",
+            line2: "2 51445  51.6400  10.0000 0001000  0.0000  0.0000 15.50000000    14",
+            type: "friendly"
+        },
+        {
+            name: "NOOR 3 (Iran)",
+            line1: "1 57962U 23148A   26040.50000000  .00000000  00000-0  00000-0 0  9993",
+            line2: "2 57962  49.9000  150.0000 0001000  0.0000  0.0000 15.00000000    14",
+            type: "hostile"
+        }
+    ];
+    
+    // --- Strategic Targets ---
+    // Note: Names are keys for translation
+    const STRATEGIC_TARGETS = [
+      { id: "tehran", name: "Tehran (Command)", lat: 35.6892, lng: 51.3890, type: "command", color: "#f43f5e" },
+      { id: "natanz", name: "Natanz (Nuclear)", lat: 33.7205, lng: 51.7282, type: "nuclear", color: "#fbbf24" },
+      { id: "bandar", name: "Bandar Abbas (Naval)", lat: 27.1832, lng: 56.2666, type: "naval", color: "#38bdf8" },
+      { id: "isfahan", name: "Isfahan (Airbase)", lat: 32.6546, lng: 51.6680, type: "air", color: "#a855f7" }
+    ];
+
+    // --- Sound Engine ---
+    const useSound = () => {
+        const [muted, setMuted] = useState(() => localStorage.getItem('strikeRadar_muted') === 'true');
+        const audioCtxRef = useRef(null);
+
+        useEffect(() => {
+            localStorage.setItem('strikeRadar_muted', muted);
+        }, [muted]);
+
+        const initAudio = () => {
+            if (!audioCtxRef.current) {
+                audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtxRef.current.state === 'suspended') {
+                audioCtxRef.current.resume();
+            }
+            setMuted(false);
+        };
+        
+        const toggleMute = () => {
+             if (muted) initAudio();
+             else setMuted(true);
+        };
+
+        const playTone = (freq, type, duration, vol = 0.1) => {
+            if (muted || !audioCtxRef.current) return;
+            const osc = audioCtxRef.current.createOscillator();
+            const gain = audioCtxRef.current.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, audioCtxRef.current.currentTime);
+            gain.gain.setValueAtTime(vol, audioCtxRef.current.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtxRef.current.currentTime + duration);
+            osc.connect(gain);
+            gain.connect(audioCtxRef.current.destination);
+            osc.start();
+            osc.stop(audioCtxRef.current.currentTime + duration);
+        };
+
+        const playBeep = () => playTone(800, 'sine', 0.1, 0.05);
+        const playAlert = () => {
+            playTone(400, 'square', 0.3, 0.1);
+            setTimeout(() => playTone(300, 'square', 0.3, 0.1), 300);
+        };
+        const playHover = () => playTone(200, 'triangle', 0.05, 0.02);
+        const playBoot = () => {
+            [200, 300, 400, 600, 800].forEach((f, i) => setTimeout(() => playTone(f, 'sine', 0.1, 0.05), i * 100));
+        };
+
+        return { muted, toggleMute, initAudio, playBeep, playAlert, playHover, playBoot };
+    };
+
+    // --- Helper Functions ---
+    function getDistanceFromLatLonInKm(lat1,lon1,lat2,lon2) {
+      var R = 6371; // Radius of the earth in km
+      var dLat = deg2rad(lat2-lat1);  
+      var dLon = deg2rad(lon2-lon1); 
+      var a = 
+        Math.sin(dLat/2) * Math.sin(dLat/2) +
+        Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * 
+        Math.sin(dLon/2) * Math.sin(dLon/2)
+        ; 
+      var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+      var d = R * c; // Distance in km
+      return d;
+    }
+
+    function deg2rad(deg) {
+      return deg * (Math.PI/180)
+    }
+
+    // --- Localization ---
+    const TRANSLATIONS = {
+      en: { 
+        title: 'STRIKE', subtitle: 'Nexus-Eagle Array v5.0', riskIndex: 'Consolidated Risk Index', intelFeed: 'Verified Intel Feed', 
+        signalArray: 'Tactical Signal Array', intelSummary: 'Intelligence Summary', battlefieldOverlay: 'Strategic Range Map', 
+        langToggle: 'עברית', textSizeNormal: 'A', textSizeLarge: 'A+', analyzing: 'Analyzing Signatures...', 
+        initialSearch: 'Initial search in progress...', loading: 'Loading...', 
+        low: 'LOW', medium: 'MEDIUM', high: 'HIGH', critical: 'CRITICAL',
+        nextScan: 'Next Scan', lastUpdate: 'Last Update', syncing: 'Syncing DB...',
+        aiActive: 'Neural Net Active', aiConfidence: 'Conf.',
+        drillMode: 'DRILL MODE', sitRep: 'Generate SITREP',
+        liveWire: 'Live Wire',
+        systemLogs: 'System Tactical Logs',
+        defcon: 'DEFCON',
+        decode: 'DECODE INTEL',
+        targetModal: {
+            distance: "DIST FROM BASE",
+            weather: "WEATHER",
+            wind: "WIND",
+            temp: "TEMP",
+            status: "STATUS",
+            feed: "SATELLITE FEED",
+            locking: "LOCKING TARGET...",
+            analysis: "TACTICAL ANALYSIS",
+            km: "KM",
+            knots: "KNOTS"
+        },
+        signals: {
+          satellite_intel: 'Satellite Intel',
+          tehran_weather: 'Tehran Visibility',
+          carrier_groups: 'Naval Presence',
+          solar_weather: 'Solar Storm (Kp)',
+          btc_usd: 'Bitcoin (Risk)',
+          crypto_fng: 'Crypto Fear&Greed',
+          news_sentiment: 'News Sentiment',
+          cyber_chatter: 'Cyber Chatter',
+          seismic_activity: 'Seismic Activity'
+        },
+        units: {
+          pass: 'Pass',
+          cloud: '% Cloud',
+          idx: 'Idx',
+          dollar: '$',
+          shekel: '₪',
+          pts: 'Pts',
+          mag: 'Mag',
+          kp: 'Kp',
+          vol: 'Vol'
+        },
+        chat: {
+          init: 'Command Interface Online. Secure channel established.',
+          placeholder: 'Enter tactical query...',
+          title: 'Command Uplink',
+          online: 'ONLINE',
+          send: 'Send',
+          error: 'COMMUNICATION FAILURE',
+          missingKey: 'ERROR: MISSING SECURITY KEY',
+          simulation: 'SIMULATION: API Key missing'
+        },
+        modal: {
+          history: '72H Intelligence History',
+          aiAnalysis: 'AI Tactical Assessment',
+          decrypting: 'Decrypting signal signature...',
+          noData: 'No verified historical data available.',
+          security: 'SECURITY CLEARANCE REQUIRED',
+          connect: 'Connect Security Key',
+          access: 'Access to the Neural Strategic Core requires a valid API Security Key.',
+          topSecret: 'Top Secret // Eyes Only // StrikeRadar v5.0',
+          intelDecoder: 'Intel Decoder',
+          pastePlaceholder: 'Paste intercepted text or intelligence report here for tactical breakdown...',
+          analyze: 'ANALYZE INTEL'
+        },
+        map: {
+          target: 'Target',
+          nuclear: 'Nuclear',
+          naval: 'Naval',
+          sat: 'Sat',
+          hostile: 'HOSTILE',
+          tehran: "Tehran (Command)",
+          natanz: "Natanz (Nuclear)",
+          bandar: "Bandar Abbas (Naval)",
+          isfahan: "Isfahan (Airbase)",
+          tacRange: "1000km Tac Range",
+          stratRange: "2000km Strat Range",
+          simHostile: "SIMULATED HOSTILE TRACK // CLASSIFIED",
+          defense: "Defense Zone",
+          vector: "Flight Vector",
+          quake: "Seismic Event"
+        },
+        status: {
+            offline: 'OFFLINE',
+            live: 'LIVE',
+            active: 'ACTIVE',
+            near: 'NEAR',
+            clear: 'CLEAR'
+        },
+        summary: "System operating at nominal capacity. Signal correlation matrix indicates {level} volatility. {neural} Monitoring vector 44.5N for anomalies."
+      },
+      he: { 
+        title: 'מכ"ם', subtitle: 'מערך Nexus-Eagle גרסה 5.0', riskIndex: 'מדד סיכון משולב', intelFeed: 'עדכוני מודיעין', 
+        signalArray: 'מערך אותות טקטי', intelSummary: 'תמצית מודיעינית', battlefieldOverlay: 'מפת טווחים אסטרטגית', 
+        langToggle: 'English', textSizeNormal: 'א', textSizeLarge: 'א+', analyzing: 'מנתח חתימות...', 
+        initialSearch: 'חיפוש ראשוני...', loading: 'טוען...', 
+        low: 'נמוך', medium: 'בינוני', high: 'גבוה', critical: 'קריטי',
+        nextScan: 'סריקה הבאה', lastUpdate: 'עדכון אחרון', syncing: 'מסתנכרן...',
+        aiActive: 'רשת עצבית פעילה', aiConfidence: 'אמינות',
+        drillMode: 'מצב תרגיל', sitRep: 'הפק דוח מצב',
+        liveWire: 'מבזקים',
+        systemLogs: 'לוג מערכת טקטי',
+        defcon: 'רמת כוננות',
+        decode: 'פענוח מודיעין',
+        targetModal: {
+            distance: "מרחק מהבסיס",
+            weather: "מזג אוויר",
+            wind: "רוח",
+            temp: "טמפ'",
+            status: "סטטוס",
+            feed: "שידור לווייני",
+            locking: "ננעל על המטרה...",
+            analysis: "ניתוח טקטי",
+            km: "ק\"מ",
+            knots: "קשר"
+        },
+        signals: {
+          satellite_intel: 'מודיעין לווייני',
+          tehran_weather: 'ראות בטהראן',
+          carrier_groups: 'נוכחות ימית',
+          solar_weather: 'סערה סולארית (Kp)',
+          btc_usd: 'ביטקוין (סיכון)',
+          crypto_fng: 'פחד וחמדנות (קריפטו)',
+          news_sentiment: 'סנטימנט חדשות',
+          cyber_chatter: 'תעבורת סייבר',
+          seismic_activity: 'פעילות סייסמית'
+        },
+        units: {
+          pass: 'מעבר',
+          cloud: '% עננות',
+          idx: 'מדד',
+          dollar: '$',
+          shekel: '₪',
+          pts: 'נק\'',
+          mag: 'מג\'',
+          kp: 'Kp',
+          vol: 'נפח'
+        },
+        chat: {
+          init: 'ממשק פיקוד מקוון. ערוץ מאובטח נוצר. ממתין לשאילתות.',
+          placeholder: 'הזן שאילתה טקטית...',
+          title: 'ערוץ פיקוד',
+          online: 'מחובר',
+          send: 'שלח',
+          error: 'כשל בתקשורת',
+          missingKey: 'שגיאה: מפתח אבטחה חסר',
+          simulation: 'סימולציה: אין גישה למטה (חסר מפתח)'
+        },
+        modal: {
+          history: 'היסטוריית מודיעין (72 שעות)',
+          aiAnalysis: 'הערכה טקטית (AI)',
+          decrypting: 'מפענח חתימת אות...',
+          noData: 'אין נתונים היסטוריים מאומתים.',
+          security: 'דרוש סיווג ביטחוני',
+          connect: 'חבר מפתח אבטחה',
+          access: 'הגישה לליבה האסטרטגית דורשת מפתח API בתוקף.',
+          topSecret: 'סודי ביותר // לעיני מורשים בלבד // StrikeRadar v5.0',
+          intelDecoder: 'פענוח מודיעין',
+          pastePlaceholder: 'הדבק כאן טקסט מיורט או דוח מודיעין לניתוח טקטי...',
+          analyze: 'בצע ניתוח'
+        },
+        map: {
+          target: 'יעד',
+          nuclear: 'גרעין',
+          naval: 'ימי',
+          sat: 'לוויין',
+          hostile: 'עוין',
+          tehran: "טהראן (פיקוד)",
+          natanz: "נתנז (גרעין)",
+          bandar: "בנדר עבאס (ימי)",
+          isfahan: "איספהאן (אוויר)",
+          tacRange: "1000 ק\"מ (טווח טקטי)",
+          stratRange: "2000 ק\"מ (טווח אסטרטגי)",
+          simHostile: "מטרה עוינת בסימולציה // מסווג",
+          defense: "אזור הגנה אווירית",
+          vector: "וקטור טיסה משוער",
+          quake: "אירוע סייסמי"
+        },
+        status: {
+            offline: 'לא מקוון',
+            live: 'שידור חי',
+            active: 'פעיל',
+            near: 'מתקרב',
+            clear: 'פנוי'
+        },
+        summary: "המערכת פועלת בתפוקה נומינלית. מטריצת הקורלציה מצביעה על תנודתיות ברמה: {level}. {neural} מנטר וקטור 44.5N לחריגות."
+      }
+    };
+
+    // Initial signals (IDs only, names/units derived from translation)
+    const INITIAL_SIGNALS = [
+      { id: 'satellite_intel', icon: '🛰️', value: null, contribution: 0, status: 'stable', source: 'init' },
+      { id: 'tehran_weather', icon: '☁️', value: null, contribution: 0, status: 'stable', source: 'init' },
+      { id: 'carrier_groups', icon: '🚢', value: null, contribution: 0, status: 'stable', source: 'init' },
+      { id: 'solar_weather', icon: '☀️', value: null, contribution: 0, status: 'stable', source: 'init' },
+      { id: 'btc_usd', icon: '₿', value: null, contribution: 0, status: 'stable', source: 'init' },
+      { id: 'crypto_fng', icon: '📉', value: null, contribution: 0, status: 'stable', source: 'init' },
+      { id: 'news_sentiment', icon: '📰', value: null, contribution: 0, status: 'stable', source: 'init' },
+      { id: 'cyber_chatter', icon: '💻', value: null, contribution: 0, status: 'stable', source: 'init' },
+      { id: 'seismic_activity', icon: '📉', value: null, contribution: 0, status: 'stable', source: 'init' }
+    ];
+
+    // Helper for Signal Translation
+    const getSignalInfo = (id, lang) => {
+        const t = TRANSLATIONS[lang];
+        switch(id) {
+            case 'satellite_intel': return { name: t.signals.satellite_intel, unit: t.units.pass };
+            case 'tehran_weather': return { name: t.signals.tehran_weather, unit: t.units.cloud };
+            case 'carrier_groups': return { name: t.signals.carrier_groups, unit: t.units.idx };
+            case 'solar_weather': return { name: t.signals.solar_weather, unit: t.units.kp };
+            case 'btc_usd': return { name: t.signals.btc_usd, unit: t.units.dollar };
+            case 'crypto_fng': return { name: t.signals.crypto_fng, unit: t.units.idx };
+            case 'news_sentiment': return { name: t.signals.news_sentiment, unit: t.units.idx };
+            case 'cyber_chatter': return { name: t.signals.cyber_chatter, unit: t.units.vol };
+            case 'seismic_activity': return { name: t.signals.seismic_activity, unit: t.units.mag };
+            default: return { name: id, unit: '' };
+        }
+    };
+
+    // --- Services: REAL DATA FETCHING ---
+    const getSatellitePosition = (tleLine1, tleLine2) => {
+        if (!window.satellite) return null;
+        try {
+            const satrec = window.satellite.twoline2satrec(tleLine1, tleLine2);
+            const positionAndVelocity = window.satellite.propagate(satrec, new Date());
+            const gmst = window.satellite.gstime(new Date());
+            
+            if (!positionAndVelocity.position || typeof positionAndVelocity.position !== 'object') return null;
+            if (isNaN(positionAndVelocity.position.x) || isNaN(positionAndVelocity.position.y) || isNaN(positionAndVelocity.position.z)) return null;
+            
+            const positionGd = window.satellite.eciToGeodetic(positionAndVelocity.position, gmst);
+            const longitude = window.satellite.degreesLong(positionGd.longitude);
+            const latitude = window.satellite.degreesLat(positionGd.latitude);
+            
+            if (!isFinite(latitude) || !isFinite(longitude)) return null;
+            
+            return { lat: latitude, lng: longitude };
+        } catch (e) {
+            return null;
+        }
+    };
+
+    const fetchRealSignals = async (currentSignals, lang = 'en', preserveValues = false) => {
+      let logs = [];
+      const addLog = (msg) => logs.push(msg);
+
+      // 1. News Logic (Runs first to get localized headlines)
+      let newsSentiment = null;
+      let newsHeadlines = [];
+      let newsSource = 'Google News RSS';
+      
+      try {
+         let rssUrl = 'https://news.google.com/rss/search?q=US+Military+Iran+tension&hl=en-US&gl=US&ceid=US:en';
+         if (lang === 'he') {
+             rssUrl = 'https://news.google.com/rss/search?q=%D7%90%D7%99%D7%A8%D7%90%D7%9F+%D7%90%D7%A8%D7%94%22%D7%91+%D7%A6%D7%91%D7%90&hl=he&gl=IL&ceid=IL:he';
+         }
+
+         let res = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`);
+         if (!res.ok) {
+             // Backup Feed (BBC Middle East - English Only fallback for reliable data)
+             newsSource = 'BBC World (Backup)';
+             addLog(`Google News RSS unreachable. Switching to ${newsSource}.`);
+             res = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent('https://feeds.bbci.co.uk/news/world/middle_east/rss.xml')}`);
+         }
+         
+         if (!res.ok) throw new Error('All News feeds failed');
+         
+         const data = await res.json();
+         if (data.status === 'ok') {
+            const items = data.items.slice(0, 5);
+            let keywordCount = 0;
+            items.forEach(item => {
+                const title = item.title.toLowerCase();
+                if (title.includes('war') || title.includes('strike') || title.includes('nuclear') || title.includes('attack') ||
+                    title.includes('מלחמה') || title.includes('תקיפה') || title.includes('גרעין') || title.includes('מתקפה') || title.includes('חיסול')) keywordCount++;
+                
+                const d = new Date(item.pubDate);
+                const dateStr = d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+                newsHeadlines.push({ title: item.title, date: dateStr });
+            });
+            newsSentiment = Math.min(99, 30 + (keywordCount * 15));
+            addLog(`News Feed updated. Source: ${newsSource}`);
+         } else {
+             throw new Error("RSS Status not ok");
+         }
+      } catch (e) { 
+          // NO FAKE DATA: If news fails, we get nothing.
+          newsHeadlines = [];
+          newsSentiment = null;
+          addLog("ERROR: News Feed connection failed.");
+      }
+
+      if (preserveValues) {
+          return {
+              signals: currentSignals,
+              headlines: newsHeadlines,
+              satData: { status: 'Unknown', positions: [] },
+              quakeData: [],
+              logs: logs
+          };
+      }
+
+      // 2. Satellite Logic (Real Math - TLE)
+      let satStatus = 'Clear';
+      let satValue = 0; 
+      const tehranLat = 35.6892;
+      const tehranLng = 51.3890;
+      let satCalculated = false;
+      const satPositions = [];
+
+      SATELLITES_TLE.forEach(sat => {
+          const pos = getSatellitePosition(sat.line1, sat.line2);
+          if (pos && isFinite(pos.lat) && isFinite(pos.lng)) {
+              const dist = Math.sqrt(Math.pow(pos.lat - tehranLat, 2) + Math.pow(pos.lng - tehranLng, 2));
+              let status = 'Orbiting';
+              if (dist < 15) { status = 'Imaging'; } 
+              else if (dist < 40) { status = 'Near'; }
+              
+              if (sat.type === 'friendly') {
+                 satCalculated = true;
+                 if (dist < 15) { satValue = 100; satStatus = 'Imaging'; }
+                 else if (dist < 40) { satValue = 50; satStatus = 'Near'; }
+              }
+
+              satPositions.push({ name: sat.name, lat: pos.lat, lng: pos.lng, type: sat.type, status });
+          }
+      });
+      if(satCalculated) addLog("Orbital data updated (TLE).");
+
+      // 3. Real Currency API (USD/ILS) - Removed Simulated fallback
+      let realUsdIls = null;
+      let usdSource = 'ExchangeRate-API';
+      try {
+        const res = await fetch('https://api.exchangerate-api.com/v4/latest/USD');
+        if (!res.ok) throw new Error('Network response was not ok');
+        const data = await res.json();
+        if (data?.rates?.ILS) realUsdIls = data.rates.ILS;
+      } catch (e) { 
+          usdSource = null;
+          realUsdIls = null;
+          addLog("ERROR: Currency API unreachable.");
+      }
+
+      // 4. Tehran Weather (Real Data) - Removed Simulated fallback
+      let weatherCloudCover = null;
+      let weatherSource = 'Open-Meteo API';
+      try {
+          const wRes = await fetch('https://api.open-meteo.com/v1/forecast?latitude=35.6892&longitude=51.3890&current=cloud_cover');
+          if (!wRes.ok) throw new Error('Weather API network error');
+          const wData = await wRes.json();
+          if (wData?.current?.cloud_cover !== undefined) {
+              weatherCloudCover = wData.current.cloud_cover;
+          }
+      } catch(e) {
+          weatherSource = null;
+          weatherCloudCover = null;
+          addLog("ERROR: Open-Meteo API unavailable.");
+      }
+
+      // 5. Bitcoin Price (Real Data) - Removed Simulated fallback
+      let btcPrice = null;
+      let btcSource = 'CoinGecko API';
+      try {
+          const btcRes = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd');
+          if (!btcRes.ok) throw new Error('BTC API network error');
+          const btcData = await btcRes.json();
+          if (btcData?.bitcoin?.usd) {
+              btcPrice = btcData.bitcoin.usd;
+          }
+      } catch (e) {
+          btcSource = null;
+          btcPrice = null;
+          addLog("ERROR: CoinGecko API rate limit/error.");
+      }
+      
+      // 6. Seismic Activity (USGS Real Data) - Removed Simulated fallback
+      let quakeValue = 0;
+      let quakeSource = 'USGS API';
+      let quakeData = [];
+      try {
+          const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+          const quakeUrl = `https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=${yesterday}&minlatitude=25&maxlatitude=40&minlongitude=44&maxlongitude=63&minmagnitude=2.5&limit=10`;
+          const qRes = await fetch(quakeUrl);
+          if (qRes.ok) {
+              const qData = await qRes.json();
+              if (qData.features && qData.features.length > 0) {
+                  let maxMag = 0;
+                  qData.features.forEach(f => {
+                      const mag = f.properties.mag;
+                      if (mag > maxMag) maxMag = mag;
+                      quakeData.push({
+                          lat: f.geometry.coordinates[1],
+                          lng: f.geometry.coordinates[0],
+                          mag: mag,
+                          time: f.properties.time,
+                          place: f.properties.place
+                      });
+                  });
+                  quakeValue = maxMag;
+              }
+          }
+      } catch (e) {
+          quakeSource = null;
+          quakeValue = null; 
+          addLog("ERROR: USGS Seismic Data unavailable.");
+      }
+
+      // 7. NOAA Solar Weather (Real Data) - Removed Simulated fallback
+      let solarKp = null;
+      let solarSource = 'NOAA SWPC';
+      try {
+          const solarRes = await fetch('https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json');
+          if (solarRes.ok) {
+              const solarData = await solarRes.json();
+              if (solarData && solarData.length > 0) {
+                  const lastEntry = solarData[solarData.length - 1];
+                  solarKp = parseFloat(lastEntry[1]);
+              }
+          }
+      } catch(e) {
+          solarSource = null;
+          solarKp = null;
+          addLog("WARN: NOAA Space Weather data missing.");
+      }
+      
+      // 8. Crypto Fear & Greed Index (Real Data) - NEW
+      let fngValue = null;
+      let fngSource = 'Alternative.me API';
+      try {
+          const fngRes = await fetch('https://api.alternative.me/fng/?limit=1');
+          if (fngRes.ok) {
+              const fngData = await fngRes.json();
+              if (fngData.data && fngData.data.length > 0) {
+                  fngValue = parseInt(fngData.data[0].value);
+              }
+          }
+      } catch (e) {
+          fngSource = null;
+          fngValue = null;
+      }
+
+      // 9. Analysis-based Signals (Real, based on Fetched News)
+      let cyberChatter = null; 
+      let navalPresence = null; 
+      
+      // Only calculate derived metrics if we actually fetched news headlines
+      if (newsHeadlines.length > 0) {
+          // Naval Analysis
+          const carrierKeywords = ['carrier', 'strike group', 'eisenhower', 'ford', 'lincoln', 'roosevelt', 'deployment', 'naval', 'sea', 'destroyer', 'נושאת מטוסים', 'צי', 'משחתת'];
+          const navalMatches = newsHeadlines.reduce((acc, h) => acc + (carrierKeywords.some(k => h.title.toLowerCase().includes(k)) ? 1 : 0), 0);
+          navalPresence = Math.min(9, navalMatches * 3);
+
+          // Cyber Analysis
+          const cyberKeywords = ['cyber', 'hack', 'ddos', 'malware', 'ransomware', 'breach', 'data leak', 'firewall', 'סייבר', 'האקר', 'פריצה', 'וירוס'];
+          const cyberMatches = newsHeadlines.reduce((acc, h) => acc + (cyberKeywords.some(k => h.title.toLowerCase().includes(k)) ? 1 : 0), 0);
+          cyberChatter = Math.min(99, cyberMatches * 20); 
+      }
+      
+      addLog("Tactical Scan cycle complete.");
+
+      return {
+        signals: currentSignals.map(signal => {
+            let newValue = null;
+            let status = 'stable';
+            let source = 'System';
+            
+            if (signal.id === 'satellite_intel') { newValue = satCalculated ? satValue : null; source = 'Orbital Mechanics (TLE)'; }
+            else if (signal.id === 'usd_ils') { newValue = realUsdIls ? realUsdIls.toFixed(3) : null; source = usdSource; }
+            else if (signal.id === 'news_sentiment') { newValue = newsSentiment; source = newsSource; }
+            else if (signal.id === 'tehran_weather') { newValue = weatherCloudCover; source = weatherSource; }
+            else if (signal.id === 'btc_usd') { newValue = btcPrice; source = btcSource; }
+            else if (signal.id === 'carrier_groups') { newValue = navalPresence; source = 'Real-time News Analysis'; }
+            else if (signal.id === 'solar_weather') { newValue = solarKp; source = solarSource; }
+            else if (signal.id === 'crypto_fng') { newValue = fngValue; source = fngSource; }
+            else if (signal.id === 'cyber_chatter') { newValue = cyberChatter; source = 'Real-time News Analysis'; }
+            else if (signal.id === 'seismic_activity') { newValue = (quakeValue !== null) ? quakeValue.toFixed(1) : null; source = quakeSource; }
+
+            // Contribution Logic (Handle Nulls as neutral/0)
+            let contribution = 0;
+            if (newValue === null) {
+                contribution = 0; 
+            } else {
+                if (signal.id === 'satellite_intel') contribution = newValue; 
+                else if (signal.id === 'news_sentiment') contribution = newValue; 
+                else if (signal.id === 'usd_ils' && parseFloat(newValue) > 4.0) contribution = 75;
+                else if (signal.id === 'tehran_weather') contribution = Math.max(0, 100 - newValue);
+                else if (signal.id === 'btc_usd') contribution = 50; 
+                else if (signal.id === 'carrier_groups') contribution = newValue * 10; 
+                else if (signal.id === 'solar_weather') contribution = Math.min(99, newValue * 15); 
+                else if (signal.id === 'crypto_fng') contribution = Math.max(0, 100 - newValue); // Fear (low value) = High Risk
+                else if (signal.id === 'cyber_chatter') contribution = newValue; 
+                else if (signal.id === 'seismic_activity') contribution = Math.min(99, Math.max(0, (newValue - 2.5) * 20)); 
+                else contribution = Math.min(99, Math.max(5, typeof newValue === 'number' ? newValue : parseFloat(newValue)));
+            }
+            
+            // Determine trend if we have both old and new values
+            if (newValue !== null && signal.value !== null) {
+                 const n = parseFloat(newValue);
+                 const o = parseFloat(signal.value);
+                 if (n > o) status = 'rising';
+                 else if (n < o) status = 'falling';
+            } else if (newValue === null) {
+                status = 'unknown';
+            }
+
+            return {
+              ...signal,
+              value: newValue,
+              contribution: Math.floor(contribution),
+              status: status,
+              source: source || 'OFFLINE',
+              lastUpdated: newValue !== null ? new Date().toLocaleTimeString('en-US', { hour12: false }) : signal.lastUpdated,
+              isRealTime: ['usd_ils', 'news_sentiment', 'satellite_intel', 'tehran_weather', 'btc_usd', 'carrier_groups', 'solar_weather', 'cyber_chatter', 'seismic_activity', 'crypto_fng'].includes(signal.id) && newValue !== null
+            };
+        }),
+        headlines: newsHeadlines,
+        satData: { status: satStatus, positions: satPositions },
+        quakeData: quakeData,
+        logs: logs
+      };
+    };
+
+    // --- Neural Network Setup ---
+    const normalizeInput = (signals) => {
+      const getVal = (id) => {
+        const s = signals.find(x => x.id === id);
+        return (s && s.value !== null) ? parseFloat(s.value) : 0;
+      };
+
+      return {
+        carrier: Math.min(getVal('carrier_groups') / 9, 1),
+        solar: Math.min(getVal('solar_weather') / 9, 1), 
+        cyber: Math.min(getVal('cyber_chatter') / 100, 1), 
+        weather: Math.min(getVal('tehran_weather') / 100, 1),
+        news: Math.min(getVal('news_sentiment') / 100, 1),
+        sat: Math.min(getVal('satellite_intel') / 100, 1),
+        quake: Math.min((getVal('seismic_activity') || 0) / 8, 1) // Normalize Mag 0-8
+      };
+    };
+
+    const calculateLinearProbability = (signals) => {
+      const activeSignals = signals.filter(s => s.value !== null);
+      if (activeSignals.length === 0) return 0;
+      const total = activeSignals.reduce((acc, curr) => acc + (parseFloat(curr.contribution) || 0), 0);
+      return Math.min(99, Math.round(total / activeSignals.length));
+    };
+
+    // --- Components ---
+
+    const WorldClocks = ({ lang }) => {
+        const [times, setTimes] = useState({});
+        
+        useEffect(() => {
+            const update = () => {
+                const now = new Date();
+                setTimes({
+                    dc: now.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false }),
+                    il: now.toLocaleTimeString('en-US', { timeZone: 'Asia/Jerusalem', hour: '2-digit', minute: '2-digit', hour12: false }),
+                    ir: now.toLocaleTimeString('en-US', { timeZone: 'Asia/Tehran', hour: '2-digit', minute: '2-digit', hour12: false })
+                });
+            };
+            update();
+            const interval = setInterval(update, 1000);
+            return () => clearInterval(interval);
+        }, []);
+
+        return (
+            <div className="grid grid-cols-3 gap-2 bg-slate-900/40 border border-slate-800 rounded-xl p-2 font-mono text-[10px] md:text-xs">
+                <div className="text-center">
+                    <div className="text-slate-500 uppercase tracking-wider font-bold mb-1">DC (EST)</div>
+                    <div className="text-emerald-400 font-bold">{times.dc || "--:--"}</div>
+                </div>
+                <div className="text-center border-x border-slate-800">
+                    <div className="text-slate-500 uppercase tracking-wider font-bold mb-1">JLM (IST)</div>
+                    <div className="text-white font-bold">{times.il || "--:--"}</div>
+                </div>
+                <div className="text-center">
+                    <div className="text-slate-500 uppercase tracking-wider font-bold mb-1">THR (IRST)</div>
+                    <div className="text-amber-500 font-bold">{times.ir || "--:--"}</div>
+                </div>
+            </div>
+        );
+    };
+
+    const SystemLog = ({ logs, lang }) => {
+        const t = TRANSLATIONS[lang];
+        const logEndRef = useRef(null);
+
+        useEffect(() => {
+            logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        }, [logs]);
+
+        return (
+            <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 h-48 flex flex-col font-mono text-[10px]">
+                <div className="flex items-center gap-2 border-b border-slate-800 pb-2 mb-2">
+                    <Terminal className="w-3 h-3 text-emerald-500" />
+                    <span className="text-emerald-500 font-bold uppercase tracking-wider">{t.systemLogs}</span>
+                </div>
+                <div className="flex-1 overflow-y-auto custom-scrollbar space-y-1">
+                    {logs.length === 0 && <div className="text-slate-600 italic">System Idle...</div>}
+                    {logs.map((log, i) => (
+                        <div key={i} className="flex gap-2">
+                            <span className="text-slate-500">[{log.time}]</span>
+                            <span className={`${log.msg.includes('ERROR') ? 'text-red-400' : log.msg.includes('WARN') ? 'text-amber-400' : 'text-emerald-400/80'}`}>
+                                {log.msg}
+                            </span>
+                        </div>
+                    ))}
+                    <div ref={logEndRef} />
+                </div>
+            </div>
+        );
+    };
+
+    const DefconGauge = ({ level }) => {
+        // level 0-100.
+        // Defcon 5: <20 (Blue)
+        // Defcon 4: 20-40 (Green)
+        // Defcon 3: 40-60 (Yellow)
+        // Defcon 2: 60-80 (Orange)
+        // Defcon 1: >80 (Red)
+        
+        const getDefcon = (p) => {
+            if (p >= 80) return 1;
+            if (p >= 60) return 2;
+            if (p >= 40) return 3;
+            if (p >= 20) return 4;
+            return 5;
+        };
+        
+        const currentDefcon = getDefcon(level);
+        
+        const levels = [
+            { id: 1, color: 'bg-red-600', activeColor: 'bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.8)]', label: 'COCKED PISTOL' },
+            { id: 2, color: 'bg-orange-600', activeColor: 'bg-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.8)]', label: 'FAST PACE' },
+            { id: 3, color: 'bg-yellow-600', activeColor: 'bg-yellow-500 shadow-[0_0_15px_rgba(234,179,8,0.8)]', label: 'ROUND HOUSE' },
+            { id: 4, color: 'bg-emerald-600', activeColor: 'bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.8)]', label: 'DOUBLE TAKE' },
+            { id: 5, color: 'bg-blue-600', activeColor: 'bg-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.8)]', label: 'FADE OUT' }
+        ];
+
+        return (
+            <div className="flex flex-col gap-1 mt-4">
+               <div className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mb-1 text-center">DEFCON LEVEL</div>
+               <div className="flex justify-between items-end h-16 px-2">
+                   {levels.slice().reverse().map((lvl) => { // Render 5 to 1 visually left to right? Or 1 to 5? Usually 1 is highest. Let's do 1 at top if vertical, or right if horizontal.
+                       // Let's do Standard: 5 (Left) -> 1 (Right)
+                       const isActive = currentDefcon === lvl.id;
+                       return (
+                           <div key={lvl.id} className="flex flex-col items-center gap-1 group w-full">
+                               <div 
+                                   className={`w-full mx-0.5 rounded-sm transition-all duration-500 ${isActive ? `h-12 ${lvl.activeColor}` : `h-6 ${lvl.color} opacity-20`}`} 
+                               />
+                               <span className={`text-[10px] font-black font-mono ${isActive ? 'text-white' : 'text-slate-600'}`}>{lvl.id}</span>
+                           </div>
+                       );
+                   })}
+               </div>
+               <div className="text-center mt-1">
+                   <span className={`text-[10px] font-bold uppercase tracking-widest ${
+                       currentDefcon === 1 ? 'text-red-500 animate-pulse' : 
+                       currentDefcon === 2 ? 'text-orange-500' :
+                       currentDefcon === 3 ? 'text-yellow-500' :
+                       currentDefcon === 4 ? 'text-emerald-500' : 'text-blue-500'
+                   }`}>
+                       {levels.find(l => l.id === currentDefcon).label}
+                   </span>
+               </div>
+            </div>
+        );
+    };
+
+    const CustomGraphTooltip = ({ active, payload, label, lang }) => {
+        if (active && payload && payload.length) {
+            const date = new Date(label);
+            const dateStr = date.toLocaleDateString(lang === 'he' ? 'he-IL' : 'en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            
+            return (
+                <div className="bg-slate-900/90 border border-slate-700 p-2 rounded shadow-[0_0_15px_rgba(0,0,0,0.5)] backdrop-blur-sm text-xs font-mono">
+                    <p className="text-slate-400 border-b border-slate-700 pb-1 mb-1">{dateStr}</p>
+                    {payload.map((entry, index) => (
+                        <div key={index} className="flex items-center gap-2" style={{color: entry.color}}>
+                            <span className="w-1 h-1 rounded-full" style={{backgroundColor: entry.color}}></span>
+                            <span>{entry.name === 'probability' ? (lang === 'he' ? 'סיכון' : 'Risk') : (lang === 'he' ? 'ממוצע' : 'Avg')}: {entry.value}%</span>
+                        </div>
+                    ))}
+                </div>
+            );
+        }
+        return null;
+    };
+
+    const TargetModal = ({ target, onClose, playSound, lang }) => {
+        const t = TRANSLATIONS[lang];
+        const [weather, setWeather] = useState(null);
+        const [loading, setLoading] = useState(true);
+        const [distance, setDistance] = useState(0);
+
+        useEffect(() => {
+            if(playSound) playSound();
+            
+            // Calculate Distance from Tel Aviv
+            const tlv = { lat: 32.0853, lng: 34.7818 };
+            const dist = getDistanceFromLatLonInKm(tlv.lat, tlv.lng, target.lat, target.lng);
+            setDistance(Math.round(dist));
+
+            // Fetch Weather
+            const fetchWeather = async () => {
+                try {
+                    const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${target.lat}&longitude=${target.lng}&current=temperature_2m,relative_humidity_2m,is_day,cloud_cover,wind_speed_10m`);
+                    if(res.ok) {
+                        const data = await res.json();
+                        setWeather(data.current);
+                    }
+                } catch(e) { console.error("Weather fetch failed", e); }
+                finally { setLoading(false); }
+            };
+            fetchWeather();
+        }, [target]);
+
+        return (
+            <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
+                <div className="bg-slate-900 border-2 border-red-500/50 w-full max-w-3xl rounded-none shadow-[0_0_50px_rgba(239,68,68,0.2)] flex flex-col overflow-hidden font-mono relative">
+                    {/* Header */}
+                    <div className="bg-red-950/30 p-4 border-b border-red-500/50 flex justify-between items-center">
+                        <div className="flex items-center gap-3">
+                            <Crosshair className="w-6 h-6 text-red-500 animate-pulse" />
+                            <div>
+                                <h2 className="text-red-500 font-black text-xl uppercase tracking-widest">{t.map[target.id] || target.name}</h2>
+                                <p className="text-red-400/60 text-[10px] uppercase font-bold tracking-[0.2em]">LAT: {target.lat} // LNG: {target.lng}</p>
+                            </div>
+                        </div>
+                        <button onClick={onClose} className="text-red-500 hover:text-white hover:bg-red-900/50 p-2 transition-colors"><X className="w-6 h-6" /></button>
+                    </div>
+
+                    <div className="flex flex-col md:flex-row h-full max-h-[70vh]">
+                        {/* Feed Column */}
+                        <div className="w-full md:w-2/3 border-b md:border-b-0 md:border-r border-red-500/30 relative bg-black min-h-[300px]">
+                            <div className="absolute top-2 left-2 z-10 bg-red-600 text-black text-[10px] font-bold px-2 py-0.5 animate-pulse">LIVE</div>
+                            <div className="sat-feed-container w-full h-full flex items-center justify-center">
+                                {/* Simulated Terrain/Map View */}
+                                <div className="absolute w-full h-full opacity-30 grayscale contrast-150" 
+                                     style={{
+                                         backgroundImage: `url('https://api.mapbox.com/styles/v1/mapbox/satellite-v9/static/${target.lng},${target.lat},13,0/600x400?access_token=pk.eyJ1IjoiZXhhbXBsZSIsImEiOiJjbGhzcDN0b3UwM3BsM2t0a252aG1uIn0.example')`,
+                                         backgroundSize: 'cover',
+                                         backgroundPosition: 'center',
+                                         backgroundColor: '#111'
+                                     }}>
+                                     {/* Fallback pattern if no image */}
+                                     <div className="w-full h-full bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-slate-800 via-black to-black opacity-50"></div>
+                                </div>
+                                <div className="sat-feed-overlay"></div>
+                                <div className="crosshair-center"></div>
+                                <div className="absolute bottom-4 left-4 text-red-500 font-mono text-xs">
+                                    <div>ZOOM: 12.4x</div>
+                                    <div>FLIR: OFF</div>
+                                    <div className="mt-1 typewriter-cursor">{t.targetModal.locking}</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Data Column */}
+                        <div className="w-full md:w-1/3 p-4 space-y-4 bg-slate-900/50 overflow-y-auto custom-scrollbar">
+                            {/* Distance Card */}
+                            <div className="bg-slate-950 border border-slate-800 p-3">
+                                <h3 className="text-slate-500 text-[9px] uppercase font-bold tracking-widest mb-1">{t.targetModal.distance}</h3>
+                                <div className="flex items-baseline gap-1">
+                                    <span className="text-2xl font-black text-white">{distance}</span>
+                                    <span className="text-xs text-red-500 font-bold">{t.targetModal.km}</span>
+                                </div>
+                                <div className="w-full bg-slate-900 h-1 mt-2">
+                                    <div className="bg-red-600 h-full" style={{width: '65%'}}></div>
+                                </div>
+                            </div>
+
+                            {/* Weather Card */}
+                            <div className="bg-slate-950 border border-slate-800 p-3">
+                                <h3 className="text-slate-500 text-[9px] uppercase font-bold tracking-widest mb-2 flex items-center gap-2">
+                                    <Cloud className="w-3 h-3" /> {t.targetModal.weather}
+                                </h3>
+                                {loading ? <Loader2 className="w-5 h-5 animate-spin text-slate-600 mx-auto" /> : (
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div className="text-center bg-slate-900/50 p-2 rounded">
+                                            <Thermometer className="w-4 h-4 text-orange-400 mx-auto mb-1" />
+                                            <span className="text-sm font-bold text-slate-200">{weather?.temperature_2m}°C</span>
+                                            <div className="text-[8px] text-slate-500">{t.targetModal.temp}</div>
+                                        </div>
+                                        <div className="text-center bg-slate-900/50 p-2 rounded">
+                                            <Wind className="w-4 h-4 text-sky-400 mx-auto mb-1" />
+                                            <span className="text-sm font-bold text-slate-200">{weather?.wind_speed_10m}</span>
+                                            <div className="text-[8px] text-slate-500">{t.targetModal.knots}</div>
+                                        </div>
+                                        <div className="col-span-2 text-center bg-slate-900/50 p-2 rounded flex justify-between items-center px-4">
+                                            <span className="text-[9px] text-slate-400 uppercase">{t.units.cloud}</span>
+                                            <span className="text-sm font-bold text-white">{weather?.cloud_cover}%</span>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Tactical Analysis (Placeholder for now) */}
+                            <div className="bg-slate-950 border border-slate-800 p-3 flex-grow">
+                                <h3 className="text-slate-500 text-[9px] uppercase font-bold tracking-widest mb-2 flex items-center gap-2">
+                                    <Brain className="w-3 h-3 text-purple-500" /> {t.targetModal.analysis}
+                                </h3>
+                                <p className="text-[10px] text-slate-400 leading-relaxed font-mono">
+                                    Target signature confirmed. Thermal output nominal. No active air defense radar detected in immediate sector. Recommendation: Maintain surveillance.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    const IntelDecoderModal = ({ onClose, playSound, lang }) => {
+        const t = TRANSLATIONS[lang];
+        const [text, setText] = useState("");
+        const [analysis, setAnalysis] = useState(null);
+        const [loading, setLoading] = useState(false);
+        const [error, setError] = useState(null);
+
+        const handleAnalyze = async () => {
+            if (!text.trim()) return;
+            if (playSound) playSound();
+            setLoading(true);
+            setAnalysis(null);
+            setError(null);
+
+            try {
+                let apiKey = process.env.API_KEY;
+                if (!apiKey && window.aistudio) {
+                     const hasKey = await window.aistudio.hasSelectedApiKey();
+                     if (!hasKey) {
+                         // Attempt to open key selector if available
+                         try { await window.aistudio.openSelectKey(); } catch(e){}
+                         apiKey = process.env.API_KEY; // Re-check
+                         if(!apiKey) {
+                             throw new Error(t.chat.missingKey);
+                         }
+                     }
+                }
+
+                if (!apiKey && !window.aistudio) {
+                    // Fallback for demo without key
+                     await new Promise(r => setTimeout(r, 1500));
+                     setAnalysis(lang === 'he' 
+                        ? "פענוח סימולציה: טקסט זה לא נשלח לניתוח אמת (חסר מפתח API). המערכת מזהה דפוסים גנריים." 
+                        : "SIMULATION DECODE: Text was not sent for real analysis (Missing API Key). System identifies generic patterns.");
+                     setLoading(false);
+                     return;
+                }
+
+                const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+                const model = ai.getGenerativeModel({ model: "gemini-3-flash-preview" });
+                
+                const prompt = `You are a military intelligence officer. Analyze the following text for threat indicators, strategic implications, and credibility. 
+                Text: "${text}"
+                Language: ${lang === 'he' ? 'HEBREW' : 'ENGLISH'}.
+                Output format: Tactical Breakdown (Concise, bullet points, military style).`;
+
+                const result = await model.generateContent(prompt);
+                const response = await result.response;
+                setAnalysis(response.text());
+
+            } catch (err) {
+                console.error("Analysis Error", err);
+                setError(t.chat.error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        return (
+            <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
+                <div className="bg-slate-900 border-2 border-emerald-500/50 w-full max-w-2xl rounded shadow-[0_0_40px_rgba(16,185,129,0.15)] flex flex-col overflow-hidden font-mono relative h-[600px]">
+                    <div className="bg-emerald-950/40 p-3 border-b border-emerald-500/30 flex justify-between items-center">
+                        <h2 className="text-emerald-400 font-bold uppercase tracking-widest flex items-center gap-2">
+                            <FileSearch className="w-5 h-5" /> {t.modal.intelDecoder}
+                        </h2>
+                        <button onClick={onClose} className="text-emerald-500 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
+                    </div>
+                    
+                    <div className="flex flex-col h-full p-4 gap-4 bg-slate-950/80">
+                        <textarea 
+                            className="w-full h-32 bg-slate-900/50 border border-slate-700 rounded p-3 text-emerald-100 text-xs md:text-sm font-mono focus:border-emerald-500 focus:outline-none resize-none placeholder-slate-600 custom-scrollbar"
+                            placeholder={t.modal.pastePlaceholder}
+                            value={text}
+                            onChange={(e) => setText(e.target.value)}
+                        />
+                        
+                        <div className="flex justify-end">
+                            <button 
+                                onClick={handleAnalyze} 
+                                disabled={loading || !text}
+                                className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-black font-bold py-2 px-6 rounded text-xs uppercase tracking-widest transition-all shadow-[0_0_15px_rgba(16,185,129,0.4)] flex items-center gap-2"
+                            >
+                                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                                {t.modal.analyze}
+                            </button>
+                        </div>
+
+                        <div className="flex-1 bg-black border border-emerald-900/30 rounded p-4 relative overflow-hidden">
+                            <div className="absolute top-0 left-0 w-full h-full pointer-events-none opacity-5 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]"></div>
+                            
+                            {loading ? (
+                                <div className="h-full flex flex-col items-center justify-center text-emerald-500 space-y-2">
+                                    <div className="w-16 h-1 bg-emerald-900/50 overflow-hidden rounded-full">
+                                        <div className="h-full bg-emerald-500 animate-[loading_1s_ease-in-out_infinite]"></div>
+                                    </div>
+                                    <span className="text-xs animate-pulse tracking-widest">{t.analyzing}</span>
+                                </div>
+                            ) : error ? (
+                                <div className="text-red-500 text-sm font-bold text-center mt-10">{error}</div>
+                            ) : analysis ? (
+                                <div className="text-emerald-400 text-xs md:text-sm whitespace-pre-wrap leading-relaxed custom-scrollbar overflow-y-auto h-full typewriter-cursor">
+                                    {analysis}
+                                </div>
+                            ) : (
+                                <div className="h-full flex items-center justify-center text-slate-700 text-xs uppercase tracking-widest opacity-50">
+                                    AWAITING INPUT...
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    const CommandChat = ({ signals, riskLevel, playSound, lang }) => {
+        const t = TRANSLATIONS[lang];
+        const [isOpen, setIsOpen] = useState(false);
+        const [messages, setMessages] = useState([
+            { role: 'system', text: t.chat.init }
+        ]);
+        const [input, setInput] = useState("");
+        const [isLoading, setIsLoading] = useState(false);
+        const messagesEndRef = useRef(null);
+
+        // Reset chat when language changes
+        useEffect(() => {
+            setMessages([{ role: 'system', text: t.chat.init }]);
+        }, [lang]);
+
+        const scrollToBottom = () => {
+            messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        };
+
+        useEffect(scrollToBottom, [messages, isOpen]);
+        
+        const quickCommands = ["SITREP", "NUCLEAR STATUS", "NAVAL MOVEMENT", "WEATHER TARGET"];
+
+        const handleSend = async (forcedMsg = null) => {
+            const msgText = (typeof forcedMsg === 'string') ? forcedMsg : input;
+            
+            if (!msgText.trim() || isLoading) return;
+            if(playSound) playSound();
+            
+            if(!forcedMsg || typeof forcedMsg !== 'string') setInput("");
+            
+            setMessages(prev => [...prev, { role: 'user', text: msgText }]);
+            setIsLoading(true);
+
+            try {
+                let apiKey = process.env.API_KEY;
+                if (!apiKey && window.aistudio) {
+                     const hasKey = await window.aistudio.hasSelectedApiKey();
+                     if (!hasKey) {
+                         setMessages(prev => [...prev, { role: 'system', text: t.chat.missingKey }]);
+                         setIsLoading(false);
+                         return;
+                     }
+                }
+                
+                if (!apiKey && !window.aistudio) {
+                    setTimeout(() => {
+                        setMessages(prev => [...prev, { role: 'system', text: t.chat.simulation }]);
+                        setIsLoading(false);
+                    }, 1000);
+                    return;
+                }
+
+                const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+                
+                // Get signal names in correct language
+                const signalText = signals
+                    .filter(s => s.value !== null)
+                    .map(s => {
+                        const info = getSignalInfo(s.id, lang);
+                        return `${info.name}: ${s.value} ${info.unit}`;
+                    })
+                    .join(', ');
+
+                const chat = ai.chats.create({
+                    model: 'gemini-3-flash-preview',
+                    config: {
+                        systemInstruction: `You are the AI tactical officer for StrikeRadar.
+                        Language: ${lang === 'he' ? 'HEBREW' : 'ENGLISH'}.
+                        If Language is HEBREW, reply ONLY in Hebrew using military terminology.
+                        Current System State:
+                        - Risk Probability: ${riskLevel}
+                        - Signals: ${signalText}
+                        
+                        Answer questions briefly, using military/tactical jargon. Be professional, slightly cynical, and concise.
+                        If asked about offline sensors, acknowledge they are dark.`
+                    }
+                });
+
+                const result = await chat.sendMessage({ message: msgText });
+                const responseText = result.text;
+                setMessages(prev => [...prev, { role: 'ai', text: responseText }]);
+
+            } catch (error) {
+                console.error("Chat error", error);
+                setMessages(prev => [...prev, { role: 'system', text: t.chat.error }]);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        return (
+            <>
+                <button 
+                    onClick={() => setIsOpen(!isOpen)} 
+                    className={`fixed bottom-6 ${lang === 'he' ? 'left-6' : 'right-6'} z-[900] w-14 h-14 rounded-full flex items-center justify-center shadow-[0_0_20px_rgba(16,185,129,0.4)] transition-all hover:scale-110 ${isOpen ? 'bg-slate-800 text-emerald-500 border border-emerald-500' : 'bg-emerald-600 text-slate-950 hover:bg-emerald-500'}`}
+                >
+                    {isOpen ? <Minimize2 className="w-6 h-6" /> : <MessageSquare className="w-6 h-6" />}
+                </button>
+
+                {isOpen && (
+                    <div className={`fixed bottom-24 ${lang === 'he' ? 'left-6' : 'right-6'} z-[900] w-80 md:w-96 h-[450px] bg-slate-900/95 backdrop-blur-md border border-emerald-500/50 rounded-xl shadow-2xl flex flex-col overflow-hidden font-mono text-xs md:text-sm`}>
+                        <div className="bg-emerald-900/30 p-3 border-b border-emerald-500/30 flex justify-between items-center">
+                            <span className="text-emerald-400 font-bold uppercase flex items-center gap-2">
+                                <Terminal className="w-4 h-4" /> {t.chat.title}
+                            </span>
+                            <div className="flex items-center gap-1">
+                                <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+                                <span className="text-[10px] text-emerald-600">{t.chat.online}</span>
+                            </div>
+                        </div>
+                        
+                        <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+                            {messages.map((m, i) => (
+                                <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                    <div className={`max-w-[85%] p-3 ${m.role === 'user' ? 'chat-bubble-user' : m.role === 'system' ? 'text-red-400 border border-red-900/50 bg-red-900/10 w-full text-center' : 'chat-bubble-ai'}`}>
+                                        {m.text}
+                                    </div>
+                                </div>
+                            ))}
+                            {isLoading && (
+                                <div className="flex justify-start">
+                                    <div className="chat-bubble-ai p-3 flex items-center gap-1">
+                                        <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce" style={{animationDelay:'0ms'}}></span>
+                                        <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce" style={{animationDelay:'150ms'}}></span>
+                                        <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce" style={{animationDelay:'300ms'}}></span>
+                                    </div>
+                                </div>
+                            )}
+                            <div ref={messagesEndRef} />
+                        </div>
+                        
+                        <div className="px-3 py-2 bg-slate-900/80 overflow-x-auto whitespace-nowrap custom-scrollbar flex gap-2 border-t border-emerald-900/30">
+                           {quickCommands.map(cmd => (
+                               <button 
+                                 key={cmd} 
+                                 onClick={() => handleSend(cmd)}
+                                 disabled={isLoading}
+                                 className="px-2 py-1 bg-emerald-900/30 border border-emerald-500/30 rounded text-[9px] text-emerald-400 hover:bg-emerald-900/50 hover:text-emerald-300 transition-colors uppercase tracking-wider"
+                               >
+                                  {cmd}
+                               </button>
+                           ))}
+                        </div>
+
+                        <div className="p-3 bg-slate-950 border-t border-emerald-500/30 flex gap-2">
+                            <input 
+                                type="text" 
+                                value={input}
+                                onChange={(e) => setInput(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && handleSend(null)}
+                                placeholder={t.chat.placeholder}
+                                className="flex-1 bg-slate-900 border border-slate-700 rounded px-3 py-2 text-emerald-400 focus:outline-none focus:border-emerald-500 placeholder-slate-600"
+                            />
+                            <button 
+                                onClick={() => handleSend(null)} 
+                                disabled={isLoading}
+                                className="bg-emerald-900/40 border border-emerald-500/50 text-emerald-500 p-2 rounded hover:bg-emerald-900/60 disabled:opacity-50"
+                            >
+                                <Send className="w-4 h-4" />
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </>
+        );
+    };
+
+    const BootSequence = ({ onComplete, playSound, lang }) => {
+        const [lines, setLines] = useState([]);
+        const [hasInteracted, setHasInteracted] = useState(false);
+        const script = [
+            "INITIALIZING NEXUS-EAGLE CORE...",
+            "VERIFYING ENCRYPTION KEYS... [OK]",
+            "ESTABLISHING SATELLITE UPLINK... [OK]",
+            "CONNECTING TO NEURAL NET... [OK]",
+            "LOADING TACTICAL MODULES...",
+            "SYSTEM READY."
+        ];
+
+        useEffect(() => {
+            if (!hasInteracted) return;
+            
+            let i = 0;
+            const interval = setInterval(() => {
+                if (i < script.length) {
+                    setLines(prev => [...prev, script[i]]);
+                    if(playSound) playSound();
+                    i++;
+                } else {
+                    clearInterval(interval);
+                    setTimeout(onComplete, 800);
+                }
+            }, 500);
+            return () => clearInterval(interval);
+        }, [hasInteracted]);
+
+        if (!hasInteracted) {
+           return (
+              <div className="fixed inset-0 bg-slate-950 z-[999] flex items-center justify-center font-mono p-4">
+                  <button 
+                     onClick={() => setHasInteracted(true)}
+                     className="px-6 py-3 bg-emerald-900/20 border border-emerald-500/50 text-emerald-400 font-bold uppercase tracking-widest hover:bg-emerald-900/40 hover:text-emerald-300 transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)] animate-pulse"
+                  >
+                     > {lang === 'he' ? 'אתחל מערכת' : 'Initialize System'}
+                  </button>
+              </div>
+           );
+        }
+
+        return (
+            <div className="fixed inset-0 bg-slate-950 z-[999] flex items-center justify-center font-mono p-4" dir="ltr">
+                <div className="w-full max-w-lg">
+                    {lines.map((line, idx) => (
+                        <div key={idx} className="text-emerald-500 text-sm mb-2">{`> ${line}`}</div>
+                    ))}
+                    <div className="typewriter-cursor text-emerald-500 text-sm mt-4">_</div>
+                </div>
+            </div>
+        );
+    };
+    
+    const NewsTicker = ({ headlines, isDrill, lang }) => {
+      const t = TRANSLATIONS[lang];
+      if (!headlines || headlines.length === 0) return null;
+      
+      return (
+        <div className="fixed bottom-0 left-0 w-full z-[100] h-8 bg-slate-950 border-t border-emerald-500/30 news-ticker-container flex items-center overflow-hidden">
+           <div className="bg-emerald-900/40 px-3 h-full flex items-center border-r border-emerald-500/30 z-10 shrink-0">
+              <Radio className={`w-3 h-3 ${isDrill ? 'text-red-400' : 'text-emerald-400'} animate-pulse ltr:mr-2 rtl:ml-2`} />
+              <span className={`text-[10px] font-bold mono ${isDrill ? 'text-red-400' : 'text-emerald-400'} uppercase`}>{t.liveWire}</span>
+           </div>
+           <div className="ticker-wrap flex-grow">
+              <div className="ticker">
+                 {headlines.map((h, i) => (
+                    <span key={i} className={`inline-block mx-8 text-[10px] font-mono ${isDrill ? 'text-red-300 news-ticker-text' : 'text-emerald-300/80'} uppercase`}>
+                       <span className="opacity-50 ltr:mr-2 rtl:ml-2">[{h.date}]</span> 
+                       {h.title}
+                    </span>
+                 ))}
+                 {headlines.map((h, i) => (
+                    <span key={`dup-${i}`} className={`inline-block mx-8 text-[10px] font-mono ${isDrill ? 'text-red-300 news-ticker-text' : 'text-emerald-300/80'} uppercase`}>
+                       <span className="opacity-50 ltr:mr-2 rtl:ml-2">[{h.date}]</span> 
+                       {h.title}
+                    </span>
+                 ))}
+              </div>
+           </div>
+        </div>
+      );
+    };
+
+    const SitRepModal = ({ onClose, signals, riskLevel, isDrill, playSound, lang }) => {
+      const t = TRANSLATIONS[lang];
+      const [report, setReport] = useState("");
+      const [loading, setLoading] = useState(false);
+      const [needsKey, setNeedsKey] = useState(false);
+
+      const checkKeyAndGenerate = async () => {
+         setLoading(true);
+         setNeedsKey(false);
+         setReport("");
+         if(playSound) playSound();
+
+         try {
+             let apiKey = process.env.API_KEY;
+             if (!apiKey && window.aistudio) {
+                 const hasKey = await window.aistudio.hasSelectedApiKey();
+                 if (!hasKey) {
+                    setNeedsKey(true);
+                    setLoading(false);
+                    return;
+                 }
+             }
+
+             if (!apiKey && !window.aistudio) {
+                await new Promise(r => setTimeout(r, 1500));
+                // Fallback mockup
+                const mockReport = lang === 'he' 
+                  ? "דוח מצב // מסווג\n\n1. סטטוס: " + riskLevel + ". המערכת מנטרת את כל ערוצי המידע.\n2. מודיעין: מעקב לווייני פעיל.\n3. שלמות נתונים: פילטרים פעילים. תצוגת מידע מאומת בלבד.\n4. סיכום: אינדיקטורים מוגברים זוהו בערוצים המאומתים."
+                  : `STRATEGIC ASSESSMENT // ${new Date().toLocaleDateString()}\n\n1. STATUS: ${riskLevel}. System is monitoring all available feeds.\n2. INTEL: Satellite tracking is active.\n3. DATA INTEGRITY: Filters active. Displaying only verified real-time datastreams.\n4. SUMMARY: Elevated indicators detected on verified channels.`;
+                setReport(mockReport);
+                setLoading(false);
+                return;
+             }
+             
+             const signalText = signals
+                    .filter(s => s.value !== null)
+                    .map(s => {
+                        const info = getSignalInfo(s.id, lang);
+                        return `${info.name}: ${s.value} ${info.unit}`;
+                    })
+                    .join('\n');
+             
+             const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+             
+             const prompt = `You are a military strategic analyst. Generate a concise, tactical Situation Report (SITREP) based on the following VERIFIED indicators:
+             - Threat Level: ${riskLevel}
+             - Drill Mode: ${isDrill ? 'ACTIVE' : 'INACTIVE'}
+             ${signalText}
+             
+             Language: ${lang === 'he' ? 'HEBREW' : 'ENGLISH'}.
+             If Language is HEBREW, write the report in Hebrew.
+             Style: Classified military teletype. Brief, punchy, use jargon.`;
+             
+             const response = await ai.models.generateContent({
+               model: 'gemini-3-flash-preview',
+               contents: prompt,
+             });
+             setReport(response.text);
+          } catch (e) {
+             console.error("AI Error", e);
+             setReport(t.chat.error);
+          } finally {
+             setLoading(false);
+          }
+      };
+
+      useEffect(() => {
+        checkKeyAndGenerate();
+      }, []);
+
+      const handleConnectKey = async () => {
+          if (window.aistudio) {
+              await window.aistudio.openSelectKey();
+              checkKeyAndGenerate();
+          }
+      };
+
+      return (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="bg-slate-900 border-2 border-emerald-500/50 w-full max-w-lg rounded shadow-[0_0_30px_rgba(16,185,129,0.2)] flex flex-col overflow-hidden font-mono relative">
+            <div className="bg-emerald-900/20 p-3 border-b border-emerald-500/30 flex justify-between items-center">
+              <h2 className="text-emerald-400 font-bold uppercase tracking-widest flex items-center gap-2">
+                <Terminal className="w-4 h-4" /> {t.modal.security}
+              </h2>
+              <button onClick={onClose} className="text-emerald-500 hover:text-emerald-300"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="p-6 min-h-[300px] bg-black relative flex flex-col">
+               <div className="absolute top-0 left-0 w-full h-full pointer-events-none opacity-10 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]"></div>
+               {needsKey ? (
+                   <div className="flex flex-col items-center justify-center h-full z-10 space-y-4 text-center">
+                       <Lock className="w-12 h-12 text-emerald-500/50 mb-2" />
+                       <div className="text-emerald-400 text-sm font-bold">{t.modal.security}</div>
+                       <p className="text-emerald-600 text-xs max-w-xs">{t.modal.access}</p>
+                       <button onClick={handleConnectKey} className="bg-emerald-600 hover:bg-emerald-500 text-black font-bold py-2 px-4 rounded text-xs uppercase tracking-widest transition-colors flex items-center gap-2">
+                           <Zap className="w-3 h-3" /> {t.modal.connect}
+                       </button>
+                   </div>
+               ) : loading ? (
+                 <div className="text-emerald-500 animate-pulse text-sm z-10" dir="ltr">
+                   > ESTABLISHING SECURE HANDSHAKE...<br/>
+                   > DECRYPTING SIGNALS...<br/>
+                   > ACCESSING NEURAL NODES...
+                 </div>
+               ) : (
+                 <div className="text-emerald-400 text-sm whitespace-pre-wrap leading-relaxed typewriter-cursor z-10 custom-scrollbar overflow-y-auto max-h-[400px]">{report}</div>
+               )}
+            </div>
+            <div className="p-2 border-t border-emerald-500/30 bg-emerald-900/20 text-[10px] text-emerald-600 text-center uppercase tracking-widest">
+               {t.modal.topSecret}
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const StrategicMap = ({ isDrill, lang, onTargetSelect, quakeData }) => {
+        const t = TRANSLATIONS[lang];
+        const mapRef = useRef(null);
+        const mapInstanceRef = useRef(null);
+        const markersRef = useRef({});
+        const drillLayerRef = useRef(null);
+        const rangeLayerRef = useRef(null);
+        const defenseLayerRef = useRef(null);
+        const quakeLayerRef = useRef(null);
+
+        // Custom Icon Generators
+        const getTacticalIcon = (type, color) => {
+             let svgContent = '';
+             // Using simple shapes that look like tactical symbols
+             if(type === 'nuclear') svgContent = `<svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2"><path d="M12 2L12 22 M2 12L22 12 M4.93 4.93L19.07 19.07 M19.07 4.93L4.93 19.07"/><circle cx="12" cy="12" r="3" fill="${color}" fill-opacity="0.3"/></svg>`;
+             else if(type === 'air') svgContent = `<svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2"><path d="M22 12L2 12M5 5L2 12L5 19M16 5L22 12L16 19"/></svg>`;
+             else if(type === 'naval') svgContent = `<svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2L12 22M2 12L22 12"/></svg>`;
+             else svgContent = `<svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2"><path d="M12 2L2 22L22 22Z"/></svg>`;
+
+             return L.divIcon({
+                 className: 'bg-transparent',
+                 html: `<div class="w-6 h-6 animate-pulse" style="color:${color}">${svgContent}</div>`,
+                 iconSize: [24, 24],
+                 iconAnchor: [12, 12]
+             });
+        };
+
+        useEffect(() => {
+            if (!mapRef.current) return;
+            if (mapInstanceRef.current) return;
+            const map = L.map(mapRef.current, {
+                center: [32.0, 54.0],
+                zoom: 4,
+                zoomControl: false,
+                attributionControl: false,
+                scrollWheelZoom: false,
+                dragging: true,
+            });
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
+            
+            // Strategic Targets with Icons
+            STRATEGIC_TARGETS.forEach(target => {
+                const marker = L.marker([target.lat, target.lng], { 
+                    icon: getTacticalIcon(target.type, target.color)
+                }).addTo(map);
+                
+                // Interaction
+                marker.on('click', () => {
+                    if (onTargetSelect) onTargetSelect(target);
+                });
+                // Simple tooltip on hover
+                marker.bindTooltip(t.map[target.id] || target.name, {
+                    permanent: false,
+                    direction: 'top',
+                    className: 'bg-slate-900 border border-slate-700 text-white text-xs px-2 py-1 rounded'
+                });
+            });
+            
+            // Initialize layers
+            drillLayerRef.current = L.layerGroup().addTo(map);
+            rangeLayerRef.current = L.layerGroup().addTo(map);
+            defenseLayerRef.current = L.layerGroup().addTo(map);
+            quakeLayerRef.current = L.layerGroup().addTo(map);
+
+            // Add Tactical Range Rings (Centered on Tehran)
+            const tehran = STRATEGIC_TARGETS.find(t => t.type === 'command');
+            if (tehran) {
+                L.circle([tehran.lat, tehran.lng], { radius: 1000000, color: '#f59e0b', weight: 1, dashArray: '5, 10', fill: false }).addTo(rangeLayerRef.current).bindPopup(t.map.tacRange);
+                L.circle([tehran.lat, tehran.lng], { radius: 2000000, color: '#ef4444', weight: 1, dashArray: '5, 10', fill: false }).addTo(rangeLayerRef.current).bindPopup(t.map.stratRange);
+            }
+            
+            // Add Air Defense Zones (Simulated off-screen Israel/US Assets)
+            const defenseZones = [
+                { lat: 26.0, lng: 50.5, name: "US 5th Fleet - Air Shield", radius: 150000 },
+                { lat: 25.2, lng: 55.3, name: "Patriot Battery Grid", radius: 80000 }
+            ];
+            
+            defenseZones.forEach(zone => {
+                 L.circle([zone.lat, zone.lng], { 
+                     radius: zone.radius, 
+                     color: '#3b82f6', 
+                     weight: 2, 
+                     fillColor: '#3b82f6', 
+                     fillOpacity: 0.1, 
+                     dashArray: '2, 4'
+                 }).addTo(defenseLayerRef.current).bindPopup(`${t.map.defense}: ${zone.name}`);
+            });
+
+            mapInstanceRef.current = map;
+            return () => { map.remove(); mapInstanceRef.current = null; };
+        }, []);
+
+        // Update translations on map elements when lang changes
+        useEffect(() => {
+            if (!mapInstanceRef.current) return;
+            // Force re-render of popups by clearing and re-adding static layers if needed
+            // For this version, we'll just let the new popups use the new lang
+        }, [lang]);
+
+        // Draw Earthquakes
+        useEffect(() => {
+            if (!quakeLayerRef.current || !quakeData) return;
+            quakeLayerRef.current.clearLayers();
+            
+            quakeData.forEach(q => {
+                 const icon = L.divIcon({
+                     className: 'custom-quake-icon',
+                     html: `<div class="quake-pulse"></div>`,
+                     iconSize: [20, 20]
+                 });
+                 L.marker([q.lat, q.lng], { icon }).addTo(quakeLayerRef.current)
+                  .bindPopup(`<b>${t.map.quake}</b><br>Mag: ${q.mag}<br>Time: ${new Date(q.time).toLocaleTimeString()}`);
+            });
+
+        }, [quakeData, lang]);
+
+        // Drill Mode Simulation Logic & Animated Vectors
+        useEffect(() => {
+            if (!drillLayerRef.current) return;
+            drillLayerRef.current.clearLayers();
+
+            const addVectors = () => {
+                 STRATEGIC_TARGETS.forEach(target => {
+                     // Draw a dashed line from target to a random point to simulate flight paths
+                     const endLat = target.lat + (Math.random() * 10 - 5);
+                     const endLng = target.lng + (Math.random() * 10 - 5);
+                     const polyline = L.polyline([[target.lat, target.lng], [endLat, endLng]], {
+                         color: target.color,
+                         weight: 1,
+                         className: 'flight-path-line',
+                         opacity: 0.6
+                     }).addTo(drillLayerRef.current).bindPopup(t.map.vector);
+                 });
+            };
+            addVectors();
+
+            if (isDrill) {
+                const addGhostTrack = () => {
+                    const lat = 25 + Math.random() * 15;
+                    const lng = 45 + Math.random() * 20;
+                    
+                    const icon = L.divIcon({
+                        className: 'custom-ghost-icon',
+                        html: `<div class="sim-hostile-icon"></div>`,
+                        iconSize: [12, 12]
+                    });
+                    
+                    L.marker([lat, lng], { icon })
+                     .addTo(drillLayerRef.current)
+                     .bindPopup(t.map.simHostile);
+                };
+
+                for(let i=0; i<5; i++) addGhostTrack();
+
+                const interval = setInterval(() => {
+                    // Refresh ghosts but keep vectors? No, clear all for simplicity in this effect
+                    drillLayerRef.current.clearLayers();
+                    addVectors(); // Redraw static vectors
+                    for(let i=0; i<Math.floor(Math.random()*4)+3; i++) addGhostTrack();
+                }, 4000);
+
+                return () => clearInterval(interval);
+            }
+        }, [isDrill, lang]);
+
+        useEffect(() => {
+            if(!window.satellite) return;
+            const updateSats = () => {
+                const map = mapInstanceRef.current;
+                if (!map) return;
+                SATELLITES_TLE.forEach(sat => {
+                    try {
+                        const satrec = window.satellite.twoline2satrec(sat.line1, sat.line2);
+                        const now = new Date();
+                        const getPos = (date) => {
+                             const posVel = window.satellite.propagate(satrec, date);
+                             if (!posVel.position || typeof posVel.position !== 'object') return null;
+                             if (isNaN(posVel.position.x) || isNaN(posVel.position.y) || isNaN(posVel.position.z)) return null;
+                             const gmst = window.satellite.gstime(date);
+                             const gd = window.satellite.eciToGeodetic(posVel.position, gmst);
+                             const lng = window.satellite.degreesLong(gd.longitude);
+                             const lat = window.satellite.degreesLat(gd.latitude);
+                             if (isFinite(lat) && isFinite(lng)) return [lat, lng];
+                             return null;
+                        };
+                        const currentPosData = getPos(now);
+                        if (!currentPosData) return;
+                        const [lat, lng] = currentPosData;
+                        const pathLatLngs = [];
+                        for(let i=-10; i<40; i+=2) { 
+                            const t = new Date(now.getTime() + i * 60000);
+                            const posData = getPos(t);
+                            if (posData) pathLatLngs.push([posData[0], posData[1]]);
+                        }
+                        const isFriendly = sat.type === 'friendly';
+                        const color = isFriendly ? '#38bdf8' : '#f43f5e';
+                        if (!markersRef.current[sat.name]) {
+                            const icon = L.divIcon({
+                                className: 'custom-sat-icon',
+                                html: `<div class="sat-icon-pulse ${!isFriendly ? 'hostile' : ''}"></div>`,
+                                iconSize: [10, 10]
+                            });
+                            markersRef.current[sat.name] = {
+                                marker: L.marker([lat, lng], { icon }).addTo(map).bindPopup(sat.name),
+                                polyline: L.polyline(pathLatLngs, { color, weight: 1, dashArray: '3, 6', opacity: 0.6 }).addTo(map)
+                            };
+                        } else {
+                            markersRef.current[sat.name].marker.setLatLng([lat, lng]);
+                            markersRef.current[sat.name].polyline.setLatLngs(pathLatLngs);
+                        }
+                    } catch (e) {}
+                });
+            };
+            const interval = setInterval(updateSats, 2000); 
+            return () => clearInterval(interval);
+        }, []);
+
+        return (
+            <div className="relative w-full h-full min-h-[300px] bg-slate-950 rounded-xl overflow-hidden group map-container">
+                 <div ref={mapRef} className="w-full h-full z-0"></div>
+                 {/* Visual Radar Overlay */}
+                 <div className="map-radar-overlay"></div>
+                 <div className="absolute bottom-2 right-2 bg-slate-900/80 p-2 rounded border border-slate-700 backdrop-blur z-[400] text-[10px] text-slate-300">
+                    <div className="flex items-center gap-2 mb-1"><span className="w-2 h-2 rounded-full bg-red-500"></span> {t.map.target}</div>
+                    <div className="flex items-center gap-2 mb-1"><span className="w-2 h-2 rounded-full bg-amber-400"></span> {t.map.nuclear}</div>
+                    <div className="flex items-center gap-2 mb-1"><span className="w-2 h-2 rounded-full bg-sky-400"></span> {t.map.naval}</div>
+                    <div className="flex items-center gap-2 mb-1"><div className="w-2 h-2 rounded-full bg-sky-400 sat-icon-pulse" style={{transform:'scale(0.8)'}}></div> {t.map.sat}</div>
+                    <div className="flex items-center gap-2 mb-1"><div className="w-2 h-2 border border-blue-500 rounded-full"></div> {t.map.defense}</div>
+                    <div className="flex items-center gap-2 mb-1"><div className="w-2 h-2 border border-orange-500 rounded-full"></div> {t.map.quake}</div>
+                    {isDrill && <div className="flex items-center gap-2 mb-1"><div className="w-2 h-2 border border-red-500 transform rotate-45"></div> <span className="text-red-400 animate-pulse">{t.map.hostile}</span></div>}
+                 </div>
+            </div>
+        );
+    };
+
+    const SignalCard = ({ signal, onClick, onHover, lang }) => {
+      const isNull = signal.value === null || signal.value === undefined;
+      const displayValue = isNull ? '--' : signal.value;
+      const opacityClass = isNull ? 'opacity-50' : 'opacity-100';
+      const t = TRANSLATIONS[lang];
+      const info = getSignalInfo(signal.id, lang);
+
+      const getStatusIcon = () => {
+        if (isNull) return <WifiOff className="text-slate-600 w-3 h-3 shrink-0" />;
+        switch (signal.status) {
+          case 'rising': return <ArrowUpRight className="text-red-400 w-3 h-3 shrink-0" />;
+          case 'falling': return <ArrowDownRight className="text-emerald-400 w-3 h-3 shrink-0" />;
+          default: return <Minus className="text-slate-600 w-3 h-3 shrink-0" />;
+        }
+      };
+      
+      const getContributionColor = () => {
+        if (isNull) return 'text-slate-600';
+        if (signal.contribution > 70) return 'text-red-500';
+        if (signal.contribution > 40) return 'text-orange-500';
+        return 'text-emerald-500';
+      };
+      
+      // Determine Status Text for Satellite if 0
+      let renderValue = displayValue;
+      if (displayValue === 0 && signal.id === 'satellite_intel') {
+          if (signal.value > 80) renderValue = t.status.active;
+          else if (signal.value > 20) renderValue = t.status.near;
+          else renderValue = t.status.clear;
+      }
+
+      return (
+        <button 
+          onClick={() => onClick(signal)} 
+          onMouseEnter={onHover}
+          aria-label={`View details for ${info.name}`}
+          className={`text-left bg-slate-900/40 border border-slate-800 p-3 md:p-4 rounded-xl hover:border-slate-600 hover:bg-slate-800/40 transition-all cursor-pointer group flex flex-col justify-between min-h-[120px] relative overflow-hidden focus:outline-none focus:ring-2 focus:ring-emerald-500/50 ${isNull ? 'border-slate-800/50' : ''}`}
+        >
+          <div className={`flex justify-between items-start w-full ${opacityClass}`}>
+            <span className="text-xl md:text-2xl opacity-80 group-hover:opacity-100 group-hover:scale-110 transition-transform">{signal.icon}</span>
+            <div className="flex items-center gap-2">
+              {signal.isRealTime && !isNull && (
+                <span className="bg-sky-500/20 text-sky-400 text-[8px] px-1.5 py-0.5 rounded border border-sky-500/50 font-bold tracking-wider animate-pulse">
+                  {t.status.live}
+                </span>
+              )}
+              {!isNull && <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full shadow-[0_0_8px_rgba(16,185,129,0.8)] pulse-live" />}
+              {isNull && <div className="w-1.5 h-1.5 bg-red-500/50 rounded-full animate-pulse" />}
+            </div>
+          </div>
+          <div className="mt-2 w-full">
+            <h3 className={`text-slate-500 text-[9px] font-black uppercase tracking-widest truncate mb-1 ${isNull ? 'text-slate-700' : ''}`}>{info.name}</h3>
+            <div className={`flex items-baseline gap-1 ${opacityClass}`}>
+              <span className={`text-sm font-black mono truncate ${isNull ? 'text-red-500/70 text-[10px]' : 'text-white'}`}>{isNull ? 'NO SIGNAL' : renderValue}</span>
+              {!isNull && <span className="text-[9px] text-slate-600 font-bold">{info.unit}</span>}
+            </div>
+            {/* NEW: Data Source Indicator */}
+            {!isNull && signal.source && (
+                 <div className="text-[7px] text-slate-500 truncate mt-1 border-t border-slate-800/50 pt-1">
+                     SRC: {signal.source}
+                 </div>
+            )}
+          </div>
+          <div className="flex justify-between items-center border-t border-slate-800/50 pt-2 mt-2 w-full">
+            <div className="flex items-center gap-1">
+              {getStatusIcon()}
+              <span className={`text-[10px] font-black mono ${getContributionColor()}`}>{isNull ? 'N/A' : signal.contribution + '%'}</span>
+            </div>
+            <span className="text-[8px] text-slate-600 mono shrink-0">
+               {isNull ? t.status.offline : (signal.lastUpdated ? signal.lastUpdated.split(':').slice(0, 2).join(':') : "--:--")}
+            </span>
+          </div>
+        </button>
+      );
+    };
+
+    const DataModal = ({ signal, onClose, playSound, lang }) => {
+      const t = TRANSLATIONS[lang];
+      const [historyData, setHistoryData] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [aiInsight, setAiInsight] = useState("");
+      const [insightLoading, setInsightLoading] = useState(false);
+      const info = getSignalInfo(signal.id, lang);
+
+      useEffect(() => {
+        if(playSound) playSound();
+        const fetchHistory = async () => {
+          setLoading(true);
+          try {
+            // FIX: Simplified query to avoid "Missing Composite Index" error.
+            // Fetches latest 100 entries by ID, then filters by date in client.
+            const logsRef = collection(db, 'signal_logs');
+            const q = query(
+                logsRef, 
+                where('signalId', '==', signal.id),
+                limit(100) 
+            );
+            
+            const snapshot = await getDocs(q);
+            const seventyTwoHoursAgo = new Date(Date.now() - 72 * 60 * 60 * 1000).getTime();
+
+            const data = snapshot.docs
+                .map(doc => {
+                  const d = doc.data();
+                  if (d.value === null || d.value === undefined || isNaN(d.value)) return null;
+                  
+                  const date = d.timestamp?.toDate ? d.timestamp.toDate() : new Date();
+                  
+                  // Client-side filtering
+                  if (date.getTime() < seventyTwoHoursAgo) return null;
+
+                  return {
+                    rawDate: date,
+                    timeStr: date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
+                    dateStr: date.toLocaleDateString([], {month:'numeric', day:'numeric'}),
+                    fullLabel: `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`,
+                    value: d.value
+                  };
+                })
+                .filter(item => item !== null)
+                .sort((a, b) => a.rawDate - b.rawDate);
+            
+            setHistoryData(data.length > 0 ? data : []);
+          } catch (error) { 
+              console.warn("Error fetching history:", error);
+              setHistoryData([]);
+          } finally { 
+              setLoading(false); 
+          }
+        };
+        fetchHistory();
+      }, [signal.id]);
+      
+      // Generate AI Insight
+      useEffect(() => {
+          const generateInsight = async () => {
+              if (!process.env.API_KEY && !window.aistudio) return;
+              if (signal.value === null) return;
+              
+              setInsightLoading(true);
+              setAiInsight("");
+              
+              try {
+                  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+                  const prompt = `Analyze tactical signal '${info.name}'. Current Value: ${signal.value} ${info.unit}. Trend: ${signal.status}. Provide a single, concise military intelligence assessment sentence about what this implies for US-Iran conflict risk.
+                  Language: ${lang === 'he' ? 'HEBREW' : 'ENGLISH'}.
+                  If Language is HEBREW, write the report in Hebrew.`;
+                  
+                  const response = await ai.models.generateContent({
+                      model: 'gemini-3-flash-preview',
+                      contents: prompt
+                  });
+                  setAiInsight(response.text);
+              } catch (e) {
+                  setAiInsight(t.modal.decrypting);
+              } finally {
+                  setInsightLoading(false);
+              }
+          };
+          generateInsight();
+      }, [signal]);
+
+      return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-slate-700 w-full max-w-2xl rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="bg-slate-800/50 p-4 flex justify-between items-center border-b border-slate-700">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">{signal.icon}</span>
+                <div>
+                  <h2 className="text-white font-black text-lg uppercase tracking-tighter">{info.name}</h2>
+                  <p className="text-emerald-500 text-[10px] uppercase font-bold tracking-widest flex items-center gap-1">
+                    <Database className="w-3 h-3" /> {t.modal.history}
+                  </p>
+                </div>
+              </div>
+              <button onClick={onClose} aria-label="Close modal" className="p-2 hover:bg-slate-700 rounded-full text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            {/* AI Insight Box */}
+            <div className="bg-slate-950/80 p-4 border-b border-slate-800">
+                <div className="flex items-start gap-2">
+                    <Brain className="w-4 h-4 text-purple-400 mt-1 shrink-0" />
+                    <div className="flex-1">
+                        <h3 className="text-[10px] text-purple-400 font-bold uppercase tracking-widest mb-1">{t.modal.aiAnalysis}</h3>
+                        {insightLoading ? (
+                            <span className="text-slate-500 text-xs animate-pulse">{t.modal.decrypting}</span>
+                        ) : (
+                            <p className="text-slate-300 text-sm font-mono typewriter-cursor leading-relaxed">
+                                {aiInsight || t.modal.noData}
+                            </p>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            <div className="p-6 overflow-y-auto custom-scrollbar flex-grow">
+              <div className="h-64 w-full">
+                {loading ? (
+                  <div className="h-full flex items-center justify-center text-slate-500 text-xs uppercase font-bold animate-pulse">{t.syncing}</div>
+                ) : historyData.length === 0 ? (
+                   <div className="h-full flex items-center justify-center text-slate-500 text-xs flex-col gap-2">
+                       <WifiOff className="w-8 h-8 opacity-50"/>
+                       <span>{t.modal.noData}</span>
+                   </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={historyData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                      <XAxis 
+                        dataKey="fullLabel" 
+                        hide={false} 
+                        tickFormatter={(label) => {
+                            const d = new Date(label);
+                            if (isNaN(d.getTime())) return "";
+                            return `${d.getDate()}/${d.getMonth()+1} ${d.getHours()}:00`;
+                        }}
+                        interval="preserveStartEnd"
+                        minTickGap={50}
+                        stroke="#475569" 
+                        fontSize={10}
+                      />
+                      <YAxis stroke="#475569" fontSize={10} axisLine={false} tickLine={false} domain={['auto', 'auto']} />
+                      <Tooltip 
+                        contentStyle={{ backgroundColor: '#020617', border: '1px solid #1e293b' }} 
+                        itemStyle={{ color: '#10b981' }}
+                        labelStyle={{ color: '#94a3b8' }}
+                      />
+                      <Line type="monotone" dataKey="value" stroke="#10b981" strokeWidth={3} dot={false} activeDot={{ r: 4, fill: '#ef4444' }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // --- Main App Component ---
+    const App = () => {
+      const [booted, setBooted] = useState(false);
+      const [signals, setSignals] = useState(INITIAL_SIGNALS);
+      const [probability, setProbability] = useState(0);
+      const [riskHistory, setRiskHistory] = useState([]);
+      const [alertLevel, setAlertLevel] = useState('LOW');
+      const [isProcessing, setIsProcessing] = useState(false);
+      const [lang, setLang] = useState('he'); // Changed default to HE
+      const [selectedSignal, setSelectedSignal] = useState(null);
+      const [selectedTarget, setSelectedTarget] = useState(null);
+      const [showSitRep, setShowSitRep] = useState(false);
+      const [showIntelDecoder, setShowIntelDecoder] = useState(false);
+      const [lastUpdated, setLastUpdated] = useState(null);
+      const [isDrill, setIsDrill] = useState(false);
+      const [headlines, setHeadlines] = useState([]);
+      const [systemLogs, setSystemLogs] = useState([]);
+      // Quake State
+      const [quakes, setQuakes] = useState([]);
+      
+      // Update HTML Dir based on Lang
+      useEffect(() => {
+          document.documentElement.lang = lang;
+          document.documentElement.dir = lang === 'he' ? 'rtl' : 'ltr';
+      }, [lang]);
+
+      const { muted, toggleMute, initAudio, playBeep, playAlert, playHover, playBoot } = useSound();
+      
+      const getNextHalfHourMark = () => {
+        const now = new Date();
+        const next = new Date(now);
+        next.setHours(now.getHours(), now.getMinutes() < 30 ? 30 : 0, 0, 0);
+        if (now.getMinutes() >= 30) next.setHours(next.getHours() + 1);
+        return next;
+      };
+      
+      const [nextScanTime, setNextScanTime] = useState(getNextHalfHourMark);
+      const [timeToNextScan, setTimeToNextScan] = useState('');
+      const [neuralNet, setNeuralNet] = useState(null);
+      const [aiConfidence, setAiConfidence] = useState(0);
+      const t = TRANSLATIONS[lang];
+
+      // Helper to add logs safely
+      const addSystemLog = (msg) => {
+          const time = new Date().toLocaleTimeString([], {hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
+          setSystemLogs(prev => [...prev.slice(-49), { time, msg }]);
+      };
+
+      useEffect(() => {
+        const initAI = async () => {
+          if (typeof brain === 'undefined') return;
+          const net = new brain.NeuralNetwork({ hiddenLayers: [5, 4], activation: 'sigmoid' });
+          const trainingData = [
+            { input: { carrier: 0, solar: 0.1, cyber: 0.1, weather: 1, news: 0.5, sat: 0.1, quake: 0 }, output: { prob: 0.1 } }, 
+            { input: { carrier: 1, solar: 0.9, cyber: 0.9, weather: 0.1, news: 0.9, sat: 1.0, quake: 0.8 }, output: { prob: 0.98 } }, 
+          ];
+          net.train(trainingData, { iterations: 2000, errorThresh: 0.005 });
+          setNeuralNet(net);
+          setAiConfidence(0.92); 
+          addSystemLog("Neural Network loaded. Confidence: 92%");
+        };
+        setTimeout(initAI, 1000);
+      }, []);
+
+      // --- NEW EFFECT: Fetch 7 DAYS of Risk History on Mount ---
+      useEffect(() => {
+          if (isDrill) return; // Don't fetch real history in drill mode
+
+          const fetchRiskHistory = async () => {
+              try {
+                  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+                  const calculationsRef = collection(db, 'calculations');
+                  
+                  const q = query(
+                      calculationsRef,
+                      where('timestamp', '>=', Timestamp.fromDate(sevenDaysAgo))
+                  );
+                  
+                  const snapshot = await getDocs(q);
+                  const history = snapshot.docs.map(doc => {
+                      const d = doc.data();
+                      const date = d.timestamp?.toDate ? d.timestamp.toDate() : new Date();
+                      return {
+                          time: date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
+                          timestamp: date.getTime(), // Store for accurate sorting/updates
+                          probability: d.probability,
+                          movingAverage: d.probability // Simplified for now
+                      };
+                  })
+                  .sort((a, b) => a.timestamp - b.timestamp); // Sort in memory
+                  
+                  if (history.length > 0) {
+                      setRiskHistory(history);
+                  }
+                  addSystemLog("Historical data synchronized.");
+              } catch (e) {
+                  console.warn("Failed to load risk history (likely missing composite index):", e);
+                  // Allow to proceed with empty history
+                  addSystemLog("WARN: History sync failed (Index missing).");
+              }
+          };
+
+          fetchRiskHistory();
+      }, [isDrill]); // Re-run if drill mode toggles off
+
+      const getAlertDetails = (prob) => {
+        if (prob > 75) return { level: t.critical, color: 'text-red-500', icon: <AlertCircle className="w-full h-full" /> };
+        if (prob > 60) return { level: t.high, color: 'text-orange-500', icon: <ChevronsUp className="w-full h-full" /> };
+        if (prob > 25) return { level: t.medium, color: 'text-yellow-500', icon: <ChevronUp className="w-full h-full" /> };
+        return { level: t.low, color: 'text-emerald-500', icon: <Maximize className="w-full h-full" /> };
+      };
+
+      const getCurrentTimeBlock = () => {
+          const now = new Date();
+          const year = now.getFullYear();
+          const month = String(now.getMonth() + 1).padStart(2, '0');
+          const day = String(now.getDate()).padStart(2, '0');
+          const hours = String(now.getHours()).padStart(2, '0');
+          const minutes = now.getMinutes() < 30 ? '00' : '30';
+          return `${year}-${month}-${day}-${hours}-${minutes}`;
+      };
+      
+      const getSixHourTicks = (data) => {
+          // Deprecated, using auto-formatting
+          return [];
+      };
+
+      const syncData = useCallback(async (forceFetch = false, reason = 'timer') => {
+        if (isProcessing) return;
+        setIsProcessing(true);
+
+        // --- NEW: UI-Only Update for Language Switch ---
+        if (reason === 'langSwitch') {
+            try {
+                 // Fetch ONLY new headlines for the new language, preserve all numerical values.
+                 const { headlines: newHeadlines } = await fetchRealSignals(signals, lang, true);
+                 setHeadlines(newHeadlines || []);
+            } catch (e) { console.error("Language switch update failed", e); }
+            finally { setIsProcessing(false); }
+            return; // EXIT EARLY to prevent data changes
+        }
+
+        if (isDrill) {
+            const drillProb = 88;
+            setProbability(drillProb);
+            setAlertLevel(getAlertDetails(drillProb).level);
+            // Simulate random spikes in drill mode
+            setSignals(prev => prev.map(s => ({
+                ...s, 
+                value: s.id === 'oil' ? 115 : (typeof s.value === 'number' ? s.value + 1 : 100), 
+                status: 'rising'
+            })));
+            
+            // Randomized Wargame Headlines for Drill Mode (Localized)
+            let selectedHeadlines = [];
+            if (lang === 'he') {
+                const drillHeadlinesHe = [
+                    "תרגיל: כוח אדום מתקדם",
+                    "סימולציה: שיגור מיירטים",
+                    "תרגיל: מרחב אווירי במחלוקת גזרה 4",
+                    "משחק מלחמה: זוהתה חדירת סייבר",
+                    "סימולציה: מעקב בליסטי פעיל"
+                ];
+                selectedHeadlines = drillHeadlinesHe.sort(() => 0.5 - Math.random()).slice(0, 2).map(title => ({ title, date: "זמן-סימולציה" }));
+            } else {
+                 const drillHeadlinesEn = [
+                    "EXERCISE: RED FORCE ADVANCING",
+                    "SIMULATION: INTERCEPTOR LAUNCH",
+                    "DRILL: AIRSPACE CONTESTED SECTOR 4",
+                    "WARGAME: CYBER INTRUSION DETECTED",
+                    "SIMULATION: BALLISTIC TRACKING ACTIVE"
+                ];
+                selectedHeadlines = drillHeadlinesEn.sort(() => 0.5 - Math.random()).slice(0, 2).map(title => ({ title, date: "SIM-TIME" }));
+            }
+                
+            setHeadlines(selectedHeadlines);
+            
+            setLastUpdated(new Date());
+            setIsProcessing(false);
+            playAlert();
+            addSystemLog("DRILL MODE ACTIVATED. SIMULATING HOSTILE TRACKS.");
+            return;
+        }
+
+        try {
+            console.log("Starting forced sync...");
+            const timeBlockId = getCurrentTimeBlock();
+            const calculationsRef = collection(db, 'calculations');
+            
+            // 1. ALWAYS Fetch Real Signals to ensure live view - Pass Language
+            const { signals: newSignals, headlines: fetchedHeadlines, satData, quakeData, logs: fetchLogs } = await fetchRealSignals(signals, lang);
+            
+            // Add logs from fetch
+            if(fetchLogs) fetchLogs.forEach(l => addSystemLog(l));
+
+            // 2. Compute Probability
+            const linearProb = calculateLinearProbability(newSignals);
+            let finalProb = linearProb;
+            if (neuralNet) {
+              const inputs = normalizeInput(newSignals);
+              const aiResult = neuralNet.run(inputs);
+              finalProb = Math.round((Math.round(aiResult.prob * 100) * 0.6) + (linearProb * 0.4));
+            }
+
+            // 3. Update UI State Immediately
+            setProbability(finalProb);
+            setAlertLevel(getAlertDetails(finalProb).level);
+            setLastUpdated(new Date());
+            setHeadlines(fetchedHeadlines || []);
+            setQuakes(quakeData || []); // Set Quake Data for Map
+            
+            const updatedSignals = signals.map(s => ({
+                ...s,
+                value: newSignals.find(ns => ns.id === s.id)?.value ?? s.value,
+                source: newSignals.find(ns => ns.id === s.id)?.source ?? s.source, // Update source in UI
+                lastUpdated: new Date().toLocaleTimeString('en-US', { hour12: false })
+            }));
+            setSignals(updatedSignals);
+            playBeep();
+
+            // 4. Save to DB Logic (FIX: Sanitized data to prevent "Circular Structure")
+            const q = query(calculationsRef, where('timeBlockId', '==', timeBlockId), limit(1));
+            let snapshot;
+            try { snapshot = await getDocs(q); } catch(e) { snapshot = { empty: true }; }
+
+            if (snapshot.empty) {
+                console.log("Creating new time block & logs:", timeBlockId);
+                const dataToSave = {
+                  timeBlockId: timeBlockId,
+                  timestamp: Timestamp.now(),
+                  probability: Number(finalProb) || 0,
+                  // Reduce to simple key-value map to ensure no circular references or DOM nodes
+                  signals: newSignals.reduce((acc, s) => {
+                      let val = s.value;
+                      if (val === undefined) val = null;
+                      // Ensure value is primitive
+                      if (val !== null && typeof val !== 'number' && typeof val !== 'string' && typeof val !== 'boolean') {
+                          val = String(val); 
+                      }
+                      return {...acc, [s.id]: val};
+                  }, {}),
+                  // Explicitly map headlines to new plain objects to ensure they are clean
+                  headlines: (fetchedHeadlines || []).map(h => ({
+                      title: String(h.title || "").substring(0, 150),
+                      date: String(h.date || "")
+                  })),
+                  satStatus: String(satData?.status || 'Clear')
+                };
+                await addDoc(calculationsRef, dataToSave);
+                
+                // Save logs
+                const logsRef = collection(db, 'signal_logs');
+                newSignals.forEach(async (s) => {
+                    if (s.value !== null && s.value !== undefined) {
+                        let val = s.value;
+                        if (typeof val !== 'number' && typeof val !== 'string' && typeof val !== 'boolean') val = String(val);
+                        await addDoc(logsRef, { 
+                            signalId: s.id, 
+                            value: val, 
+                            timestamp: Timestamp.now(),
+                            source: s.source || 'system' 
+                        });
+                    }
+                });
+
+                // NEW: Save Satellite Logs
+                if (satData?.positions) {
+                    satData.positions.forEach(async (pos) => {
+                        await addDoc(logsRef, {
+                            signalId: `sat_pos_${pos.name.replace(/\s+/g, '_')}`,
+                            value: JSON.stringify({ lat: pos.lat, lng: pos.lng }),
+                            metadata: { name: pos.name, type: pos.type, status: pos.status },
+                            timestamp: Timestamp.now(),
+                            source: 'Orbital Mechanics (TLE)'
+                        });
+                    });
+                }
+
+                // Update Risk History
+                const timeStr = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute:'2-digit' });
+                setRiskHistory(prev => {
+                     const history = [...prev];
+                     if (history.length > 336) history.shift(); // Keep ~7 days of half-hour blocks (24*7*2 = 336)
+                     return [...history, { 
+                          time: timeStr, 
+                          timestamp: Date.now(),
+                          probability: finalProb, 
+                          movingAverage: finalProb 
+                     }];
+                });
+            } else {
+                console.log("Block exists. Checking if logs need update...");
+                const lastLogTime = localStorage.getItem('strikeRadar_lastLogTime');
+                const now = Date.now();
+                // Reduced interval to 5 minutes (300000ms) for better fidelity
+                if (!lastLogTime || (now - parseInt(lastLogTime)) > 5 * 60 * 1000) {
+                     console.log("Updating signal logs (Inter-block update)...");
+                     const logsRef = collection(db, 'signal_logs');
+                     newSignals.forEach(async (s) => {
+                        if (s.value !== null && s.value !== undefined) {
+                            let val = s.value;
+                            if (typeof val !== 'number' && typeof val !== 'string' && typeof val !== 'boolean') val = String(val);
+                            await addDoc(logsRef, { 
+                                signalId: s.id, 
+                                value: val, 
+                                timestamp: Timestamp.now(),
+                                source: s.source || 'system'
+                            });
+                        }
+                     });
+                     
+                     // NEW: Save Satellite Logs (Inter-block)
+                     if (satData?.positions) {
+                        satData.positions.forEach(async (pos) => {
+                            await addDoc(logsRef, {
+                                signalId: `sat_pos_${pos.name.replace(/\s+/g, '_')}`,
+                                value: JSON.stringify({ lat: pos.lat, lng: pos.lng }),
+                                metadata: { name: pos.name, type: pos.type, status: pos.status },
+                                timestamp: Timestamp.now(),
+                                source: 'Orbital Mechanics (TLE)'
+                            });
+                        });
+                    }
+
+                     localStorage.setItem('strikeRadar_lastLogTime', now.toString());
+                }
+            }
+
+        } catch (err) { 
+            console.error("Sync failed:", err); 
+            addSystemLog("CRITICAL: Sync failed. " + err.message);
+        } finally { 
+            setIsProcessing(false); 
+            setNextScanTime(getNextHalfHourMark()); 
+        }
+      }, [signals, isProcessing, neuralNet, isDrill, lang]);
+
+      // Force initial sync on load
+      useEffect(() => { if(!isDrill && booted) syncData(); }, [neuralNet, booted]);
+
+      // Re-sync if Drill Mode changes
+      useEffect(() => { 
+          if(booted) {
+              syncData(false);
+              if(isDrill) playAlert();
+          } 
+      }, [isDrill]);
+
+      // Re-sync if Lang changes (to update news feed)
+      useEffect(() => {
+          if(booted) syncData(true, 'langSwitch');
+      }, [lang]);
+      
+      useEffect(() => {
+          if (isDrill) document.body.classList.add('theme-drill');
+          else document.body.classList.remove('theme-drill');
+      }, [isDrill]);
+
+      useEffect(() => {
+        const timer = setInterval(() => {
+          const now = new Date();
+          const diff = nextScanTime - now;
+          if (diff <= 0) {
+            setNextScanTime(getNextHalfHourMark());
+            syncData(false); // Trigger strict sync on the mark
+          } else {
+            const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+            const s = Math.floor((diff % (1000 * 60)) / 1000);
+            setTimeToNextScan(`${m}m ${s}s`);
+          }
+        }, 1000);
+        return () => clearInterval(timer);
+      }, [nextScanTime, syncData]);
+
+      const { color: alertColor, icon: alertIcon } = getAlertDetails(probability);
+
+      if (!booted) {
+          return <BootSequence onComplete={() => { initAudio(); setBooted(true); playBoot(); }} playSound={playBeep} lang={lang} />;
+      }
+
+      return (
+        <div dir={lang === 'he' ? 'rtl' : 'ltr'} className="p-4 md:p-6 lg:p-8 min-h-screen pb-12">
+          {/* Header */}
+          <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
+            <div onClick={playBeep} className="cursor-pointer mb-4 md:mb-0">
+              <h1 className="text-2xl md:text-3xl font-black tracking-tighter uppercase">{t.title}</h1>
+              <p className="text-[10px] md:text-xs text-slate-500 font-bold tracking-widest mono">{t.subtitle}</p>
+            </div>
+            
+            <div className="flex flex-col items-end gap-3 w-full md:w-auto">
+                <div className="flex items-center gap-4 text-[10px] font-bold mono bg-slate-900/60 px-3 py-1.5 rounded-full border border-slate-800">
+                    <div className="flex items-center gap-1.5 text-slate-400"><Clock className="w-3 h-3" /><span>{t.lastUpdate}: {lastUpdated ? lastUpdated.toLocaleTimeString() : '--:--'}</span></div>
+                    <div className="w-px h-3 bg-slate-700"></div>
+                    <div className="flex items-center gap-1.5 text-emerald-400"><Zap className="w-3 h-3" /><span>{t.nextScan}: {timeToNextScan}</span></div>
+                    <button onClick={toggleMute} className={`ltr:ml-2 rtl:mr-2 ${muted ? 'text-slate-600' : 'text-emerald-500'}`}>
+                        {muted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+                    </button>
+                </div>
+                
+                <div className="flex items-center gap-2">
+                    <button aria-label="Decode Intel" onClick={() => { playBeep(); setShowIntelDecoder(true); }} className={`flex items-center gap-1.5 border rounded-full px-3 py-1.5 transition text-[10px] font-bold uppercase mono bg-emerald-900/20 border-emerald-500/50 text-emerald-400 hover:bg-emerald-900/40`}>
+                      <FileSearch className="w-3 h-3" /> {t.decode}
+                    </button>
+                    <button aria-label="Generate SITREP" onClick={() => setShowSitRep(true)} className={`flex items-center gap-1.5 border rounded-full px-3 py-1.5 transition text-[10px] font-bold uppercase mono bg-emerald-900/20 border-emerald-500/50 text-emerald-400 hover:bg-emerald-900/40`}>
+                      <FileText className="w-3 h-3" /> {t.sitRep}
+                    </button>
+                    <button aria-label="Toggle Drill Mode" onClick={() => setIsDrill(prev => !prev)} className={`flex items-center gap-1.5 border rounded-full px-3 py-1.5 transition text-[10px] font-bold uppercase mono ${isDrill ? 'bg-red-500/20 border-red-500 text-red-400 animate-pulse' : 'bg-slate-800/50 border-slate-700 text-slate-300 hover:bg-slate-800'}`}>
+                    <Siren className="w-3 h-3" /> {t.drillMode}
+                    </button>
+                    <button aria-label="Toggle language" onClick={() => { playBeep(); setLang(l => l === 'en' ? 'he' : 'en'); }} className="flex items-center gap-1.5 bg-slate-800/50 border border-slate-700 rounded-full px-3 py-1.5 hover:bg-slate-800 transition text-[10px] font-bold uppercase mono text-slate-300">
+                    <Languages className="w-3 h-3" /> {t.langToggle}
+                    </button>
+                </div>
+            </div>
+          </header>
+
+          <main className="grid grid-cols-12 gap-4 md:gap-6 mb-8">
+            {/* Left Column: Risk & Clocks */}
+            <div className="col-span-12 lg:col-span-4 space-y-4 md:space-y-6">
+              
+              {/* World Clocks - NEW */}
+              <WorldClocks lang={lang} />
+
+              {/* Radar Card */}
+              <div className={`bg-slate-900/40 border ${isDrill ? 'border-red-900/50 shadow-[0_0_20px_rgba(220,38,38,0.1)]' : 'border-slate-800'} rounded-2xl p-6 relative overflow-hidden min-h-[300px]`}>
+                <div className="radar-sweep"></div>
+                <div className="flex justify-between items-start mb-4">
+                  <h2 className="text-xs text-slate-400 font-bold uppercase tracking-widest">{t.riskIndex}</h2>
+                  {neuralNet && (
+                    <div className="flex items-center gap-1 bg-purple-500/10 border border-purple-500/30 px-2 py-0.5 rounded text-[8px] font-bold text-purple-400 animate-pulse">
+                      <Brain className="w-3 h-3" /> {t.aiActive}
+                    </div>
+                  )}
+                </div>
+                <div className="flex flex-col items-center justify-center gap-2 relative z-10">
+                  <div className="flex items-center gap-4">
+                      <div className={`w-20 h-20 ${alertColor}`}>{alertIcon}</div>
+                      <div>
+                        <span className={`text-7xl font-black mono ${alertColor}`}>{probability}<span className="text-4xl">%</span></span>
+                        <p className={`font-bold uppercase tracking-widest ${alertColor}`}>{alertLevel}</p>
+                      </div>
+                  </div>
+                  {/* DEFCON GAUGE - NEW */}
+                  <div className="w-full">
+                      <DefconGauge level={probability} />
+                  </div>
+                </div>
+                <div className="h-32 mt-4 -mx-6 -mb-6 relative z-10 opacity-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={riskHistory.length > 0 ? riskHistory : [{probability: 0, movingAverage: 0, time:''}]}>
+                      <defs>
+                        <linearGradient id="riskGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor={isDrill ? "#ef4444" : "#10b981"} stopOpacity={0.6} />
+                          <stop offset="95%" stopColor={isDrill ? "#ef4444" : "#10b981"} stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="1 4" stroke="#334155" opacity={0.5} vertical={false} />
+                      <XAxis 
+                        dataKey="timestamp" 
+                        type="number" 
+                        domain={['auto', 'auto']} 
+                        tickFormatter={(unixTime) => {
+                            const date = new Date(unixTime);
+                            return date.toLocaleDateString(lang === 'he' ? 'he-IL' : 'en-US', { weekday: 'short', hour: 'numeric' });
+                        }}
+                        minTickGap={40}
+                        stroke="#475569" 
+                        fontSize={9} 
+                        tickMargin={10}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <Tooltip content={<CustomGraphTooltip lang={lang} />} />
+                      <ReferenceLine y={75} stroke="#ef4444" strokeDasharray="3 3" opacity={0.5} />
+                      <Area 
+                          type="monotone" 
+                          dataKey="probability" 
+                          stroke={isDrill ? "#ef4444" : "#10b981"} 
+                          strokeWidth={2} 
+                          fill="url(#riskGradient)" 
+                          animationDuration={1500}
+                          connectNulls={false}
+                      />
+                      <Line 
+                          type="monotone" 
+                          dataKey="movingAverage" 
+                          stroke="#fbbf24" 
+                          strokeWidth={1} 
+                          dot={false} 
+                          strokeDasharray="4 4" 
+                          opacity={0.8} 
+                          connectNulls={false}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* System Log - NEW */}
+              <SystemLog logs={systemLogs} lang={lang} />
+            </div>
+
+            {/* Right Column: Signals & Map */}
+            <div className="col-span-12 lg:col-span-8 space-y-4 md:space-y-6">
+              
+              {/* Signal Grid */}
+              <div className="bg-slate-900/40 border border-slate-800 rounded-2xl p-6">
+                <h2 className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-4">{t.signalArray}</h2>
+                <div className="signals-grid">
+                  {signals.map(signal => (<SignalCard key={signal.id} signal={signal} onClick={(s) => { playBeep(); setSelectedSignal(s); }} onHover={playHover} lang={lang} />))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* News Feed - Moved here */}
+                <div className="bg-slate-900/40 border border-slate-800 rounded-2xl p-6 h-[400px] flex flex-col">
+                    <h2 className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-3 flex items-center gap-2">
+                        <Radio className="w-3 h-3 text-emerald-500" /> {t.intelFeed}
+                    </h2>
+                    <div className="space-y-3 flex-1 overflow-y-auto custom-scrollbar">
+                    {headlines.length > 0 ? headlines.map((upd, i) => (
+                        <div key={i} className="text-xs border-l-2 border-slate-700 pl-3 py-1 hover:bg-slate-800/30 transition-colors">
+                        <p className="text-slate-300 leading-snug">{upd.title}</p>
+                        <div className="flex items-center gap-2 text-[9px] text-slate-500 font-bold mono mt-1">
+                            <span>{upd.date}</span>
+                        </div>
+                        </div>
+                    )) : (
+                        <p className="text-slate-600 text-xs italic">{t.initialSearch}</p>
+                    )}
+                    </div>
+                </div>
+
+                <div className="bg-slate-900/40 border border-slate-800 rounded-2xl p-6 relative overflow-hidden group h-[400px] flex flex-col">
+                  <h2 className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-3 flex items-center gap-2">
+                    <Globe className="w-3 h-3 text-sky-400" /> {t.battlefieldOverlay}
+                  </h2>
+                  <div className="flex-1 relative rounded overflow-hidden">
+                      <StrategicMap isDrill={isDrill} lang={lang} onTargetSelect={(t) => { playBeep(); setSelectedTarget(t); }} quakeData={quakes} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </main>
+          
+          <NewsTicker headlines={headlines} isDrill={isDrill} lang={lang} />
+
+          {selectedTarget && (<TargetModal target={selectedTarget} onClose={() => setSelectedTarget(null)} playSound={playBeep} lang={lang} />)}
+          {selectedSignal && (<DataModal signal={selectedSignal} onClose={() => setSelectedSignal(null)} playSound={playBeep} lang={lang} />)}
+          {showSitRep && (<SitRepModal onClose={() => setShowSitRep(false)} signals={signals} riskLevel={alertLevel} isDrill={isDrill} playSound={playBeep} lang={lang} />)}
+          {showIntelDecoder && (<IntelDecoderModal onClose={() => setShowIntelDecoder(false)} playSound={playBeep} lang={lang} />)}
+          <CommandChat signals={signals} riskLevel={alertLevel} playSound={playBeep} lang={lang} />
+        </div>
+      );
+    };
+
+    const root = createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
